@@ -62,6 +62,16 @@ enum Cmd {
         #[arg(long)]
         keys: Option<PathBuf>,
     },
+    /// Move everything filed under artist FROM to artist INTO, then remove FROM.
+    MergeArtist {
+        from: String,
+        into: String,
+        /// Show what would change without changing anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        keys: Option<PathBuf>,
+    },
     /// Delete an object by handle.
     Rm {
         handle: String,
@@ -212,6 +222,24 @@ fn main() -> Result<()> {
                     Some(_) => {}
                     None => println!("{h:#010x}  {artist} - {name}"),
                 }
+            }
+        }
+        Cmd::MergeArtist { from, into, dry_run, keys } => {
+            let keys = load_keys(keys)?;
+            let mut z = Zune::connect(Some(&keys))?;
+            let storage = *z.storage_ids()?.first().context("no storage")?;
+            let from_h = z.find_artist(storage, &from)?.with_context(|| format!("no artist named {from:?}"))?;
+            let into_h = z.find_artist(storage, &into)?.with_context(|| format!("no artist named {into:?}"))?;
+            anyhow::ensure!(from_h != into_h, "FROM and INTO are the same artist");
+            let changes = z.merge_artist(storage, from_h, into_h, &into, dry_run)?;
+            let verb = if dry_run { "would relink" } else { "relinked" };
+            for c in &changes {
+                println!("{verb} {} {:#010x} {:?} (was album artist {:?}, link {from_h:#010x})", c.kind, c.handle, c.name, c.old_album_artist);
+            }
+            if dry_run {
+                println!("dry run: {} objects, and {from:?} ({from_h:#010x}) would be removed", changes.len());
+            } else {
+                println!("merged {from:?} into {into:?}: {} objects relinked", changes.len());
             }
         }
         Cmd::Rm { handle, keys } => {

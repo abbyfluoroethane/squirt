@@ -149,7 +149,7 @@ impl Zune {
         self.create_abstract(storage, albums_dir, format::ABSTRACT_AUDIO_ALBUM, &props)
     }
 
-    fn set_prop(&mut self, handle: u32, code: u16, data: &[u8]) -> Result<(), DeviceError> {
+    pub(crate) fn set_prop(&mut self, handle: u32, code: u16, data: &[u8]) -> Result<(), DeviceError> {
         self.transport().transact(op::SET_OBJECT_PROP_VALUE, &[handle, code as u32], Some(data))?;
         Ok(())
     }
@@ -278,6 +278,90 @@ impl Zune {
             let _ = self.delete_object(album);
         }
         Ok(tracks.len())
+    }
+}
+
+/// One change made (or planned) by [`Zune::merge_artist`].
+#[derive(Debug, Clone)]
+pub struct MergeChange {
+    pub handle: u32,
+    pub kind: &'static str,
+    pub name: String,
+    pub old_album_artist: String,
+}
+
+impl Zune {
+    /// Finds an artist object in `Artists/` by display name.
+    pub fn find_artist(&mut self, storage: u32, name: &str) -> Result<Option<u32>, DeviceError> {
+        let artists = match self.find_child(storage, ROOT, "Artists")? {
+            Some(a) => a,
+            None => return Ok(None),
+        };
+        for h in self.object_handles(storage, FORMAT_ARTIST, artists)? {
+            if self.prop_string(h, prop::NAME)? == name {
+                return Ok(Some(h));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Relinks every album and track that points at artist `from` to artist
+    /// `into`, sets their album-artist text to `into_name`, then deletes `from`.
+    /// With `dry_run`, only reports what would change.
+    pub fn merge_artist(
+        &mut self,
+        storage: u32,
+        from: u32,
+        into: u32,
+        into_name: &str,
+        dry_run: bool,
+    ) -> Result<Vec<MergeChange>, DeviceError> {
+        let mut changes = Vec::new();
+        let albums = self.find_child(storage, ROOT, "Albums")?;
+        let mut candidates: Vec<(u32, &'static str)> = Vec::new();
+        if let Some(albums) = albums {
+            for h in self.object_handles(storage, format::ABSTRACT_AUDIO_ALBUM, albums)? {
+                candidates.push((h, "album"));
+            }
+        }
+        for fmt in [format::MP3, format::WMA, format::M4A] {
+            for h in self.object_handles(storage, fmt, 0)? {
+                candidates.push((h, "track"));
+            }
+        }
+        // Snapshot the links first: relinking an album can change its tracks.
+        let mut linked = Vec::new();
+        for (h, kind) in candidates {
+            if self.prop_u32(h, zprop::ARTIST_REF).ok() == Some(from) {
+                linked.push((h, kind));
+            }
+        }
+        for (h, kind) in linked {
+            let name = self.prop_string(h, prop::NAME).unwrap_or_default();
+            let artist_prop = if kind == "album" { prop::ARTIST } else { prop::ALBUM_ARTIST };
+            let old_album_artist = self.prop_string(h, artist_prop).unwrap_or_default();
+            if !dry_run {
+                // Relinking an album can make the device update its tracks
+                // itself, after which writing them is refused (0x200F). So
+                // accept a refused write when the value already matches.
+                if let Err(e) = self.set_prop(h, zprop::ARTIST_REF, &into.to_le_bytes()) {
+                    if self.prop_u32(h, zprop::ARTIST_REF).ok() != Some(into) {
+                        return Err(e);
+                    }
+                }
+                if let Err(e) = self.set_prop(h, artist_prop, &crate::dataset::encode_string(into_name)) {
+                    if self.prop_string(h, artist_prop).ok().as_deref() != Some(into_name) {
+                        return Err(e);
+                    }
+                }
+            }
+            changes.push(MergeChange { handle: h, kind, name, old_album_artist });
+        }
+        if !dry_run {
+            // The device may already have removed the orphaned artist.
+            let _ = self.delete_object(from);
+        }
+        Ok(changes)
     }
 }
 
