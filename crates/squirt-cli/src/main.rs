@@ -89,6 +89,22 @@ enum Cmd {
         #[command(subcommand)]
         cmd: LibCmd,
     },
+    /// Play files, or an album from the library.
+    Play {
+        paths: Vec<PathBuf>,
+        /// Play this library album (matched by name, case-insensitive).
+        #[arg(long)]
+        album: Option<String>,
+        /// Volume from 0 to 1.
+        #[arg(long, default_value_t = 0.7)]
+        volume: f32,
+        /// Stop after this many seconds.
+        #[arg(long)]
+        seconds: Option<f64>,
+        /// Seek to this many seconds into the first track after 1 s (for testing).
+        #[arg(long)]
+        seek_test: Option<u64>,
+    },
     /// Serve a local JSON API for developing the UI in a browser.
     Serve {
         #[arg(long, default_value_t = 5190)]
@@ -354,6 +370,7 @@ fn main() -> Result<()> {
         }
         Cmd::Library { cmd } => library(cmd)?,
         Cmd::Serve { port } => serve::serve(port)?,
+        Cmd::Play { paths, album, volume, seconds, seek_test } => play(paths, album, volume, seconds, seek_test)?,
         Cmd::Rm { handle, keys } => {
             let keys = load_keys(keys)?;
             let mut z = Zune::connect(Some(&keys))?;
@@ -617,6 +634,69 @@ fn reconnect(keys: &MtpzKeys) -> Result<Zune> {
                 let _ = e;
             }
             Err(e) => return Err(e).context("the Zune did not come back within 60 s"),
+        }
+    }
+}
+
+fn play(paths: Vec<PathBuf>, album: Option<String>, volume: f32, seconds: Option<f64>, seek_test: Option<u64>) -> Result<()> {
+    use squirt_player::{Event, Player, Status};
+    let (queue, titles): (Vec<PathBuf>, Vec<String>) = if let Some(name) = album {
+        let lib = open_library()?;
+        let a = lib
+            .albums(None)?
+            .into_iter()
+            .find(|a| a.title.to_lowercase().contains(&name.to_lowercase()))
+            .with_context(|| format!("no album matching {name:?}"))?;
+        println!("{} - {}", a.artist, a.title);
+        lib.album_tracks(&a.artist, &a.title)?.into_iter().map(|t| (t.path, t.title)).unzip()
+    } else {
+        let files = collect_audio(&paths)?;
+        let titles = files.iter().map(|f| f.file_stem().unwrap_or_default().to_string_lossy().into_owned()).collect();
+        (files, titles)
+    };
+    anyhow::ensure!(!queue.is_empty(), "nothing to play");
+    let player = Player::new()?;
+    player.set_volume(volume);
+    player.play_queue(queue, 0);
+    let t0 = std::time::Instant::now();
+    let mut seeked = false;
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        for e in player.take_events() {
+            match e {
+                Event::TrackStarted(i) => println!("\n> {}", titles[i]),
+                Event::TrackCompleted(i) => println!("\n  completed {}", titles[i]),
+                Event::TrackFailed(i, err) => println!("\n  skipped {}: {err}", titles[i]),
+                Event::QueueEnded => {
+                    println!("\nend of queue");
+                    return Ok(());
+                }
+            }
+        }
+        let s = player.state();
+        print!(
+            "\r  {:?} {}:{:02} / {}:{:02}   ",
+            s.status,
+            s.position_ms / 60000,
+            s.position_ms / 1000 % 60,
+            s.duration_ms / 60000,
+            s.duration_ms / 1000 % 60
+        );
+        use std::io::Write;
+        std::io::stdout().flush().ok();
+        if let (Some(target), false) = (seek_test, seeked) {
+            if t0.elapsed().as_secs_f64() > 1.0 {
+                player.seek(target * 1000);
+                seeked = true;
+            }
+        }
+        if seconds.is_some_and(|max| t0.elapsed().as_secs_f64() >= max) {
+            println!();
+            return Ok(());
+        }
+        if s.status == Status::Stopped && t0.elapsed().as_secs() > 2 {
+            println!();
+            return Ok(());
         }
     }
 }

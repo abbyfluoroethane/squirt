@@ -13,4 +13,5 @@ lofty = "0.25.5"
 serde_json = "1.0.154"
 squirt-library = { version = "0.1.0", path = "../squirt-library" }
 squirt-mtp = { version = "0.1.0", path = "../squirt-mtp" }
+squirt-player = { version = "0.1.0", path = "../squirt-player" }
 tiny_http = "0.12.0"
