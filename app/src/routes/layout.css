@@ -146,11 +146,31 @@
 		@apply font-sans antialiased;
 		font-size: 13px;
 	}
+	/* Desktop app shell: the window never scrolls (lists scroll inside it), no
+	   rubber-banding, and text isn't selectable except in fields. WebKit (the
+	   macOS webview) needs the -webkit- prefixes. */
+	html,
+	body {
+		height: 100%;
+		overflow: hidden;
+		overscroll-behavior: none;
+	}
 	body {
 		@apply bg-background text-foreground;
-		/* Desktop app: no rubber-band scrolling, no text selection by default. */
-		overscroll-behavior: none;
+		-webkit-user-select: none;
 		user-select: none;
+		cursor: default;
+	}
+	input,
+	textarea,
+	[contenteditable='true'],
+	.selectable {
+		-webkit-user-select: text;
+		user-select: text;
+	}
+	img,
+	svg {
+		-webkit-user-drag: none;
 	}
 }
 

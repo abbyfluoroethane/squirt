@@ -101,7 +101,7 @@
 	</svg>
 {/snippet}
 
-<main class="min-h-dvh bg-background p-10 text-foreground">
+<main class="h-dvh overflow-auto bg-background p-10 text-foreground">
 	<h1 class="pivot mb-2">drop workshop</h1>
 	<p class="mb-8 text-muted-foreground">liquid-glass takes on the droplet, without an outline.</p>
 

@@ -104,7 +104,7 @@
 	</svg>
 {/snippet}
 
-<main class="min-h-dvh bg-background p-10 text-foreground">
+<main class="h-dvh overflow-auto bg-background p-10 text-foreground">
 	<h1 class="pivot mb-2">fluid workshop</h1>
 	<p class="mb-8 max-w-3xl text-muted-foreground">
 		the droplet after the 2025 microsoft 365 icons: folded, overlapping layers, vivid analogous gradients, soft shading where layers meet, no gloss.
