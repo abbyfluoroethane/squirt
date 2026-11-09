@@ -74,6 +74,8 @@ pub struct DeviceStatus {
     pub usage: Usage,
     /// Set when a Zune is plugged in but cannot be used (no keys, handshake failed).
     pub problem: Option<String>,
+    /// "slate" or "platinum", from the device's own icon; None if unknown.
+    pub finish: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,6 +116,7 @@ struct DeviceSlot {
     released: bool,
     zune: Option<Zune>,
     storage: u32,
+    finish: Option<String>,
     status: DeviceStatus,
     checked: Option<Instant>,
     library: Option<DeviceLibrary>,
@@ -147,6 +150,8 @@ pub struct DeviceInfoDto {
     pub tracks: usize,
     pub albums: usize,
     pub artists: usize,
+    /// "slate" or "platinum"; None if unknown.
+    pub finish: Option<String>,
 }
 
 // ---------------------------------------------------------------- service
@@ -275,6 +280,7 @@ impl Service {
                     let tracks = z.music_tracks().unwrap_or_default();
                     let albums = z.album_objects(dev.storage).unwrap_or_default();
                     dev.library = Some(DeviceLibrary { tracks, albums });
+                    dev.finish = device_finish(&mut z);
                     dev.zune = Some(z);
                 }
                 Err(e) => return problem(&mut dev, format!("could not connect: {e}")),
@@ -304,6 +310,7 @@ impl Service {
                     free: si.free_bytes,
                     usage: Usage { music, other: used.saturating_sub(music), ..Default::default() },
                     problem: None,
+                    finish: dev.finish.clone(),
                 };
             }
             Err(_) => {
@@ -350,6 +357,7 @@ impl Service {
             tracks,
             albums,
             artists,
+            finish: status.finish,
         }
     }
 
@@ -574,6 +582,36 @@ impl Service {
         std::thread::sleep(Duration::from_millis(30));
         self.player_state()
     }
+}
+
+/// The device's color, read from its own icon (MTP property 0xD405, a
+/// Windows .ico). The Zune HD's icon shows the device itself, so the chin's
+/// brightness tells slate (dark) from platinum (light). Verified on a slate
+/// Zune HD, whose icon is slate; that platinum units ship a platinum icon is
+/// assumed.
+fn device_finish(z: &mut Zune) -> Option<String> {
+    let d = z.raw(0x1015, &[0xD405]).ok()?;
+    let n = u32::from_le_bytes(d.get(..4)?.try_into().ok()?) as usize;
+    let ico = d.get(4..4 + n)?;
+    let img = image::load_from_memory_with_format(ico, image::ImageFormat::Ico).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    // The chin: a band near the bottom of the device, around the centre.
+    let (x0, x1) = (w * 36 / 100, w * 60 / 100);
+    let (y0, y1) = (h * 80 / 100, h * 86 / 100);
+    let (mut sum, mut count) = (0f64, 0u32);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = img.get_pixel(x, y);
+            if p[3] > 200 {
+                sum += 0.2126 * p[0] as f64 + 0.7152 * p[1] as f64 + 0.0722 * p[2] as f64;
+                count += 1;
+            }
+        }
+    }
+    if count < 20 {
+        return None;
+    }
+    Some(if sum / count as f64 > 110.0 { "platinum" } else { "slate" }.into())
 }
 
 fn problem(dev: &mut DeviceSlot, msg: String) -> DeviceStatus {

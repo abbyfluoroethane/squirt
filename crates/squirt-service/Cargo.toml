@@ -5,6 +5,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+image = { version = "0.25.10", default-features = false, features = ["ico", "png"] }
 serde = { version = "1.0.229", features = ["derive"] }
 squirt-library = { version = "0.1.0", path = "../squirt-library" }
 squirt-mtp = { version = "0.1.0", path = "../squirt-mtp" }

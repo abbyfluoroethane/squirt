@@ -19,6 +19,8 @@ export interface DeviceStatus {
 	usage: Usage;
 	/** Set when a Zune is plugged in but cannot be used. */
 	problem?: string | null;
+	/** The device's color, read from its own icon. */
+	finish?: 'slate' | 'platinum' | null;
 }
 
 export interface Track {
@@ -150,6 +152,8 @@ export interface DeviceInfo {
 	tracks: number;
 	albums: number;
 	artists: number;
+	/** The device's color, read from its own icon; null if unknown. */
+	finish: 'slate' | 'platinum' | null;
 }
 
 export interface DeviceApi {
@@ -357,7 +361,8 @@ function mockDevices(): DeviceApi {
 		usage: { music: 2.6 * GB, videos: 0, pictures: 0.2 * GB, other: 0.1 * GB },
 		tracks: 372,
 		albums: 46,
-		artists: 19
+		artists: 19,
+		finish: 'slate'
 	};
 	const ret = async () => structuredClone(info);
 	return {

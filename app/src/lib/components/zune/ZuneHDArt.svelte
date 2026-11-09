@@ -11,7 +11,18 @@
 	// When lit the screen shows the time and date, like the lock screen.
 	import { onMount } from 'svelte';
 
-	let { height = 420, lit = true }: { height?: number; lit?: boolean } = $props();
+	let {
+		height = 420,
+		lit = true,
+		finish = 'platinum'
+	}: { height?: number; lit?: boolean; finish?: 'slate' | 'platinum' } = $props();
+
+	// Metal for the chin and edge: champagne for platinum, graphite for slate.
+	const METAL = {
+		platinum: { top: '#ddd5c6', bottom: '#b9b0a0', highlight: 0.4 },
+		slate: { top: '#47494d', bottom: '#222326', highlight: 0.18 }
+	} as const;
+	const metal = $derived(METAL[finish]);
 	const uid = $props.id();
 
 	let now = $state(new Date());
@@ -23,7 +34,8 @@
 	const day = $derived(now.toLocaleDateString(undefined, { weekday: 'long' }).toLowerCase());
 	const date = $derived(now.toLocaleDateString(undefined, { month: 'long', day: 'numeric' }).toLowerCase());
 
-	// Geometry, in mm.
+	// Geometry, in mm. (Champagne metal is the platinum model; the slate model
+	// has graphite metal.)
 	const EDGE = 0.9; // metal hairline at the sides and top
 	const R_BODY = 2.4;
 	const R_GLASS = 1.6;
@@ -76,8 +88,8 @@
 		</linearGradient>
 		<!-- Champagne metal, lit from above. -->
 		<linearGradient id="{uid}-metal" x1="0" y1="0" x2="0.2" y2="1">
-			<stop offset="0" stop-color="#ddd5c6" />
-			<stop offset="1" stop-color="#b9b0a0" />
+			<stop offset="0" stop-color={metal.top} />
+			<stop offset="1" stop-color={metal.bottom} />
 		</linearGradient>
 		<!-- The diagonal reflection across the glass in the product shots:
 		     lighter top-left, near black bottom-right. -->
@@ -96,7 +108,7 @@
 
 	<!-- Body: metal, visible as the hairline edge and the chin. -->
 	<rect x="0" y="0" width="53" height="102" rx={R_BODY} fill="url(#{uid}-metal)" />
-	<rect x="0.3" y="0.3" width="52.4" height="101.4" rx={R_BODY - 0.3} fill="none" stroke="#fff" stroke-opacity="0.4" stroke-width="0.3" />
+	<rect x="0.3" y="0.3" width="52.4" height="101.4" rx={R_BODY - 0.3} fill="none" stroke="#fff" stroke-opacity={metal.highlight} stroke-width="0.3" />
 
 	<!-- Glass with the home-button notch. -->
 	<path d={glassPath} fill="url(#{uid}-glass)" />

@@ -61,7 +61,7 @@
 
 <div class="flex min-h-0 flex-1 gap-14">
 	<div class="metro-enter flex shrink-0 items-start pt-2" style="--i: 1">
-		<ZuneHDArt height={430} lit={info?.connected ?? false} />
+		<ZuneHDArt height={430} lit={info?.connected ?? false} finish={info?.finish ?? 'platinum'} />
 	</div>
 
 	<div class="metro-enter flex min-w-0 max-w-2xl flex-1 flex-col gap-8 overflow-y-auto pr-2" style="--i: 2">
@@ -122,6 +122,9 @@
 				{#if battery !== null}
 					<dt class="colhead">battery</dt>
 					<dd class="flex items-center gap-2"><BatteryIcon size={18} class={battery <= 12 ? 'text-destructive' : ''} /><span class="tabular">{battery}%</span></dd>
+				{/if}
+				{#if info.finish}
+					<dt class="colhead">color</dt><dd class="lowercase">{info.finish}</dd>
 				{/if}
 				<dt class="colhead">firmware</dt><dd class="tabular">{info.firmware}</dd>
 				<dt class="colhead">serial</dt><dd class="tabular selectable text-xs leading-5 break-all text-muted-foreground">{info.serial}</dd>

@@ -4213,6 +4213,7 @@ dependencies = [
 name = "squirt-service"
 version = "0.1.0"
 dependencies = [
+ "image",
  "serde",
  "squirt-library",
  "squirt-mtp",
