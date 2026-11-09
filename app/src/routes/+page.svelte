@@ -204,6 +204,8 @@
 			state={player}
 			title={nowPlaying?.t.title}
 			subtitle={nowPlaying ? `${nowPlaying.t.artist} · ${nowPlaying.a.title}` : undefined}
+			art={nowPlaying?.a.art ?? undefined}
+			hue={nowPlaying?.a.hue}
 			onToggle={act((a) => a.player.toggle())}
 			onPrev={act((a) => a.player.prev())}
 			onNext={act((a) => a.player.next())}

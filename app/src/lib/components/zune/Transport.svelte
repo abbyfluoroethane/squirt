@@ -3,11 +3,14 @@
 	import type { PlayerState } from '$lib/api';
 	import { duration } from '$lib/format';
 	import { SkipBack, SkipForward, Play, Pause } from 'phosphor-svelte';
+	import AlbumArt from './AlbumArt.svelte';
 
 	let {
 		state,
 		title,
 		subtitle,
+		art,
+		hue = 0,
 		onToggle,
 		onPrev,
 		onNext,
@@ -16,6 +19,8 @@
 		state: PlayerState;
 		title?: string;
 		subtitle?: string;
+		art?: string;
+		hue?: number;
 		onToggle: () => void;
 		onPrev: () => void;
 		onNext: () => void;
@@ -40,7 +45,12 @@
 		</button>
 		<button class="round size-8" onclick={onNext} disabled={!active} aria-label="next"><SkipForward size={14} weight="fill" /></button>
 	</div>
-	<div class="flex w-[26rem] max-w-[38vw] flex-col gap-1.5">
+	{#if active}
+		<AlbumArt {hue} size={56} src={art} />
+	{:else}
+		<div class="size-14 shrink-0 bg-muted"></div>
+	{/if}
+	<div class="-ml-1 flex w-[26rem] max-w-[34vw] flex-col gap-1.5">
 		<div class="flex min-w-0 items-baseline gap-2">
 			{#if active}
 				<span class="truncate">{title}</span>
