@@ -86,15 +86,15 @@ export interface ScrobbleEntry {
 
 export interface SocialStatus {
 	lastfm: {
-		apiKey: string;
-		hasSecret: boolean;
+		/** False when this build of Squirt has no Last.fm secret. */
+		available: boolean;
 		connected: boolean;
 		username: string;
 		enabled: boolean;
 		authPending: boolean;
 		error: string | null;
 	};
-	discord: { clientId: string; enabled: boolean; connected: boolean; error: string | null };
+	discord: { enabled: boolean; connected: boolean; error: string | null };
 	scrobbles: ScrobbleEntry[];
 }
 
@@ -115,14 +115,12 @@ export interface LastFmProfile {
 
 export interface SocialApi {
 	status(): Promise<SocialStatus>;
-	setLastfmKeys(key: string, secret: string): Promise<SocialStatus>;
 	/** Returns the last.fm page where the user approves Squirt. */
 	beginAuth(): Promise<string>;
 	finishAuth(): Promise<SocialStatus>;
 	disconnect(): Promise<SocialStatus>;
 	setLastfmEnabled(on: boolean): Promise<SocialStatus>;
 	profile(): Promise<LastFmProfile>;
-	setDiscordClientId(id: string): Promise<SocialStatus>;
 	setDiscordEnabled(on: boolean): Promise<SocialStatus>;
 }
 
@@ -272,18 +270,13 @@ function mockPlayer(tracks: () => Track[]): PlayerApi {
 
 function mockSocial(): SocialApi {
 	let st: SocialStatus = {
-		lastfm: { apiKey: '', hasSecret: false, connected: false, username: '', enabled: false, authPending: false, error: null },
-		discord: { clientId: '', enabled: false, connected: false, error: null },
+		lastfm: { available: true, connected: false, username: '', enabled: false, authPending: false, error: null },
+		discord: { enabled: false, connected: false, error: null },
 		scrobbles: []
 	};
 	const ret = async () => structuredClone(st);
 	return {
 		status: ret,
-		async setLastfmKeys(key, secret) {
-			st.lastfm.apiKey = key;
-			st.lastfm.hasSecret ||= !!secret;
-			return ret();
-		},
 		async beginAuth() {
 			st.lastfm.authPending = true;
 			return 'https://www.last.fm/api/auth/';
@@ -313,10 +306,6 @@ function mockSocial(): SocialApi {
 					url: 'https://www.last.fm'
 				}))
 			};
-		},
-		async setDiscordClientId(id) {
-			st.discord.clientId = id;
-			return ret();
 		},
 		async setDiscordEnabled(on) {
 			st.discord.enabled = on;
@@ -371,13 +360,11 @@ async function tauriArt(albums: Album[]): Promise<Album[]> {
 
 const tauriSocial: SocialApi = {
 	status: () => call('social_status'),
-	setLastfmKeys: (key, secret) => call('lastfm_set_keys', { key, secret }),
 	beginAuth: () => call('lastfm_begin_auth'),
 	finishAuth: () => call('lastfm_finish_auth'),
 	disconnect: () => call('lastfm_disconnect'),
 	setLastfmEnabled: (on) => call('lastfm_set_enabled', { on }),
 	profile: () => call('lastfm_profile'),
-	setDiscordClientId: (id) => call('discord_set_client_id', { id }),
 	setDiscordEnabled: (on) => call('discord_set_enabled', { on })
 };
 
@@ -402,18 +389,15 @@ async function devPost<T>(path: string): Promise<T> {
 	if (!r.ok) throw new Error(body?.error ?? `HTTP ${r.status}`);
 	return body;
 }
-const enc = encodeURIComponent;
 
 const devApi: Api = {
 	social: {
 		status: () => devPost('social/status'),
-		setLastfmKeys: (key, secret) => devPost(`social/lastfm/keys?key=${enc(key)}&secret=${enc(secret)}`),
 		beginAuth: async () => (await devPost<{ url: string }>('social/lastfm/begin')).url,
 		finishAuth: () => devPost('social/lastfm/finish'),
 		disconnect: () => devPost('social/lastfm/disconnect'),
 		setLastfmEnabled: (on) => devPost(`social/lastfm/enabled?on=${on}`),
 		profile: () => devPost('social/lastfm/profile'),
-		setDiscordClientId: (id) => devPost(`social/discord/client?id=${enc(id)}`),
 		setDiscordEnabled: (on) => devPost(`social/discord/enabled?on=${on}`)
 	},
 	player: {

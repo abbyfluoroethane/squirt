@@ -7,8 +7,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LastFmConfig {
-    pub api_key: String,
-    pub api_secret: String,
     /// Set after the user authorizes Squirt on last.fm.
     pub session_key: String,
     pub username: String,
@@ -18,8 +16,6 @@ pub struct LastFmConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DiscordConfig {
-    /// Application ID from the Discord developer portal.
-    pub client_id: String,
     pub enabled: bool,
 }
 

@@ -11,7 +11,7 @@ use crate::{err, Result, Service};
 use serde::Serialize;
 use squirt_social::discord::{Discord, Presence};
 use squirt_social::lastfm::{LastFm, RecentTrack, TrackInfo, UserInfo};
-use squirt_social::SocialConfig;
+use squirt_social::{builtin, SocialConfig};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -35,8 +35,8 @@ pub struct ScrobbleDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LastFmStatus {
-    pub api_key: String,
-    pub has_secret: bool,
+    /// False when this build has no Last.fm secret compiled in.
+    pub available: bool,
     pub connected: bool,
     pub username: String,
     pub enabled: bool,
@@ -47,7 +47,6 @@ pub struct LastFmStatus {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscordStatus {
-    pub client_id: String,
     pub enabled: bool,
     pub connected: bool,
     pub error: Option<String>,
@@ -112,8 +111,7 @@ impl SocialState {
     }
 
     fn lastfm(&self) -> Option<LastFm> {
-        let c = &self.config.lastfm;
-        (!c.api_key.is_empty() && !c.api_secret.is_empty()).then(|| LastFm::new(&c.api_key, &c.api_secret))
+        builtin::LASTFM_API_SECRET.map(|secret| LastFm::new(builtin::LASTFM_API_KEY, secret))
     }
 
     /// Last.fm client and session key, when connected and enabled.
@@ -157,8 +155,7 @@ impl Service {
         let c = &s.config;
         SocialStatus {
             lastfm: LastFmStatus {
-                api_key: c.lastfm.api_key.clone(),
-                has_secret: !c.lastfm.api_secret.is_empty(),
+                available: builtin::LASTFM_API_SECRET.is_some(),
                 connected: !c.lastfm.session_key.is_empty(),
                 username: c.lastfm.username.clone(),
                 enabled: c.lastfm.enabled,
@@ -166,7 +163,6 @@ impl Service {
                 error: s.lastfm_error.clone(),
             },
             discord: DiscordStatus {
-                client_id: c.discord.client_id.clone(),
                 enabled: c.discord.enabled,
                 connected: s.discord.as_ref().is_some_and(Discord::connected),
                 error: s.discord_error.clone(),
@@ -175,28 +171,9 @@ impl Service {
         }
     }
 
-    /// Sets the Last.fm API key and secret. A new key needs a new authorization.
-    pub fn lastfm_set_keys(&self, api_key: &str, api_secret: &str) -> Result<SocialStatus> {
-        {
-            let mut s = self.social.lock().unwrap();
-            let l = &mut s.config.lastfm;
-            if l.api_key != api_key.trim() {
-                l.session_key.clear();
-                l.username.clear();
-            }
-            l.api_key = api_key.trim().into();
-            if !api_secret.trim().is_empty() {
-                l.api_secret = api_secret.trim().into();
-            }
-            s.lastfm_error = None;
-            s.save()?;
-        }
-        Ok(self.social_status())
-    }
-
     /// Starts authorization: returns the last.fm page to open in a browser.
     pub fn lastfm_begin_auth(&self) -> Result<String> {
-        let lf = self.social.lock().unwrap().lastfm().ok_or("set the Last.fm API key and secret first")?;
+        let lf = self.social.lock().unwrap().lastfm().ok_or("Last.fm isn't available in this build of Squirt")?;
         let token = lf.get_token()?;
         let url = lf.auth_url(&token);
         self.social.lock().unwrap().auth_token = Some(token);
@@ -245,20 +222,6 @@ impl Service {
         {
             let mut s = self.social.lock().unwrap();
             s.config.lastfm.enabled = on;
-            s.save()?;
-        }
-        Ok(self.social_status())
-    }
-
-    pub fn discord_set_client_id(&self, id: &str) -> Result<SocialStatus> {
-        {
-            let mut s = self.social.lock().unwrap();
-            if let Some(d) = s.discord.as_mut() {
-                d.disconnect();
-            }
-            s.discord = None;
-            s.discord_error = None;
-            s.config.discord.client_id = id.trim().into();
             s.save()?;
         }
         Ok(self.social_status())
@@ -420,13 +383,14 @@ impl Service {
 
     /// Sets (or clears) the Discord presence for the current listen.
     fn update_discord(&self, l: &Listen, position_ms: u64, duration_ms: u64) {
-        let (client_id, enabled, lf) = {
+        let (enabled, lf) = {
             let s = self.social.lock().unwrap();
-            (s.config.discord.client_id.clone(), s.config.discord.enabled, s.lastfm())
+            (s.config.discord.enabled, s.lastfm())
         };
-        if !enabled || client_id.is_empty() {
+        if !enabled {
             return;
         }
+        let client_id = builtin::DISCORD_CLIENT_ID;
         // Cover art must be a web URL; Last.fm has one for most albums.
         let image = match (&l.meta, &lf) {
             (Some(m), Some(lf)) if l.status == "playing" => {
@@ -446,7 +410,7 @@ impl Service {
 
         let mut s = self.social.lock().unwrap();
         if s.discord.as_ref().is_none_or(|d| d.client_id() != client_id) {
-            s.discord = Some(Discord::new(&client_id));
+            s.discord = Some(Discord::new(client_id));
         }
         let d = s.discord.as_mut().unwrap();
         let result = match (&l.meta, l.status) {

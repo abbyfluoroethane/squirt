@@ -15,29 +15,6 @@ fn query(url: &str, key: &str) -> Option<String> {
     })
 }
 
-/// Decodes %XX escapes and '+' in a query value.
-fn decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        match b[i] {
-            b'%' if i + 2 < b.len() => match u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                Ok(v) => {
-                    out.push(v);
-                    i += 3;
-                    continue;
-                }
-                Err(_) => out.push(b'%'),
-            },
-            b'+' => out.push(b' '),
-            c => out.push(c),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
 fn json_response<T: serde::Serialize>(v: &T) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(serde_json::to_string(v).unwrap_or_else(|_| "null".into()))
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
@@ -74,16 +51,11 @@ fn handle(svc: &Service, req: Request) {
             svc.volume(v).map(|v| json_response(&v)).unwrap_or_else(error)
         }
         "/api/social/status" => json_response(&svc.social_status()),
-        "/api/social/lastfm/keys" => {
-            let (k, sec) = (q("key").unwrap_or_default(), q("secret").unwrap_or_default());
-            svc.lastfm_set_keys(&decode(&k), &decode(&sec)).map(|v| json_response(&v)).unwrap_or_else(error)
-        }
         "/api/social/lastfm/begin" => svc.lastfm_begin_auth().map(|u| json_response(&json!({ "url": u }))).unwrap_or_else(error),
         "/api/social/lastfm/finish" => svc.lastfm_finish_auth().map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/social/lastfm/disconnect" => svc.lastfm_disconnect().map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/social/lastfm/enabled" => svc.lastfm_set_enabled(q("on").as_deref() == Some("true")).map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/social/lastfm/profile" => svc.lastfm_profile().map(|v| json_response(&v)).unwrap_or_else(error),
-        "/api/social/discord/client" => svc.discord_set_client_id(&decode(&q("id").unwrap_or_default())).map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/social/discord/enabled" => svc.discord_set_enabled(q("on").as_deref() == Some("true")).map(|v| json_response(&v)).unwrap_or_else(error),
         p if p.starts_with("/api/art/") => match svc.art(p.trim_start_matches("/api/art/")) {
             Some(bytes) => Response::from_data(bytes)

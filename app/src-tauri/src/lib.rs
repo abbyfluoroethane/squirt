@@ -69,11 +69,6 @@ fn social_status(svc: Svc) -> SocialStatus {
 }
 
 #[tauri::command(async)]
-fn lastfm_set_keys(svc: Svc, key: String, secret: String) -> Result<SocialStatus, String> {
-    svc.lastfm_set_keys(&key, &secret)
-}
-
-#[tauri::command(async)]
 fn lastfm_begin_auth(svc: Svc) -> Result<String, String> {
     svc.lastfm_begin_auth()
 }
@@ -96,11 +91,6 @@ fn lastfm_set_enabled(svc: Svc, on: bool) -> Result<SocialStatus, String> {
 #[tauri::command(async)]
 fn lastfm_profile(svc: Svc) -> Result<LastFmProfile, String> {
     svc.lastfm_profile()
-}
-
-#[tauri::command(async)]
-fn discord_set_client_id(svc: Svc, id: String) -> Result<SocialStatus, String> {
-    svc.discord_set_client_id(&id)
 }
 
 #[tauri::command(async)]
@@ -148,13 +138,11 @@ pub fn run() {
             player_seek,
             player_volume,
             social_status,
-            lastfm_set_keys,
             lastfm_begin_auth,
             lastfm_finish_auth,
             lastfm_disconnect,
             lastfm_set_enabled,
             lastfm_profile,
-            discord_set_client_id,
             discord_set_enabled
         ])
         .run(tauri::generate_context!())

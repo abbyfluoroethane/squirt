@@ -2,3 +2,6 @@
 .mtpz-data
 *.mtpz-data
 .DS_Store
+
+# Local build secrets (see crates/squirt-social/src/lib.rs)
+/.cargo/config.toml

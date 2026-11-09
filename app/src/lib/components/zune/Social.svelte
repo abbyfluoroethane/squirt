@@ -4,7 +4,6 @@
 	import { onMount } from 'svelte';
 	import { openExternal, type LastFmProfile, type SocialApi, type SocialStatus } from '$lib/api';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
 	import { Switch } from '$lib/components/ui/switch';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { ArrowSquareOut, MusicNotesSimple } from 'phosphor-svelte';
@@ -17,9 +16,6 @@
 	let busy = $state(false);
 	let actionError = $state<string | null>(null);
 
-	let keyInput = $state('');
-	let secretInput = $state('');
-	let discordInput = $state('');
 
 	async function refreshProfile() {
 		if (!status?.lastfm.connected) {
@@ -37,8 +33,6 @@
 	async function refreshStatus() {
 		const before = status?.scrobbles.length ?? 0;
 		status = await social.status();
-		if (!keyInput) keyInput = status.lastfm.apiKey;
-		if (!discordInput) discordInput = status.discord.clientId;
 		// A new scrobble: refresh recent tracks so it shows up.
 		if (status.scrobbles.length !== before) refreshProfile();
 	}
@@ -66,11 +60,6 @@
 		}
 	}
 
-	const saveKeys = () => run(async () => {
-		const s = await social.setLastfmKeys(keyInput, secretInput);
-		secretInput = '';
-		return s;
-	});
 	const connect = () => run(async () => {
 		const url = await social.beginAuth();
 		await openExternal(url);
@@ -176,14 +165,8 @@
 		{#if status}
 			<div class="flex flex-col gap-3">
 				<h2 class="subpivot">last.fm</h2>
-				{#if !status.lastfm.apiKey || !status.lastfm.hasSecret}
-					<p class="text-xs text-muted-foreground">
-						squirt needs a last.fm api key and shared secret.
-						<button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://www.last.fm/api/account/create')}>get them here</button>.
-					</p>
-					<Input placeholder="api key" bind:value={keyInput} class="font-mono text-xs select-text" />
-					<Input placeholder="shared secret" type="password" bind:value={secretInput} class="font-mono text-xs" />
-					<Button size="sm" class="w-fit lowercase" disabled={busy || !keyInput || (!secretInput && !status.lastfm.hasSecret)} onclick={saveKeys}>save</Button>
+				{#if !status.lastfm.available}
+					<p class="text-xs text-muted-foreground">last.fm isn't available in this build of squirt.</p>
 				{:else if !status.lastfm.connected}
 					{#if status.lastfm.authPending}
 						<p class="text-xs text-muted-foreground">approve squirt on the last.fm page that opened in your browser, then come back here.</p>
@@ -195,7 +178,6 @@
 						<p class="text-xs text-muted-foreground">sign in to scrobble what you play and show your listening history.</p>
 						<Button size="sm" class="w-fit lowercase" disabled={busy} onclick={connect}>connect last.fm</Button>
 					{/if}
-					<button class="w-fit text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground" onclick={() => status && (status.lastfm.hasSecret = false)}>change api key</button>
 				{:else}
 					<p class="text-xs text-muted-foreground">signed in as <span class="text-foreground">{status.lastfm.username}</span></p>
 					<label class="flex items-center justify-between gap-3">
@@ -210,13 +192,9 @@
 			<div class="flex flex-col gap-3">
 				<h2 class="subpivot">discord</h2>
 				<p class="text-xs text-muted-foreground">show "listening to squirt" with the song and a progress bar on your discord profile.</p>
-				<div class="flex gap-2">
-					<Input placeholder="application id" bind:value={discordInput} class="font-mono text-xs" />
-					<Button size="sm" variant="outline" class="lowercase" disabled={busy || discordInput === status.discord.clientId} onclick={() => run(() => social.setDiscordClientId(discordInput))}>save</Button>
-				</div>
 				<label class="flex items-center justify-between gap-3">
 					<span class="lowercase">show what i'm listening to</span>
-					<Switch checked={status.discord.enabled} disabled={busy || !status.discord.clientId} onCheckedChange={(on) => run(() => social.setDiscordEnabled(on))} />
+					<Switch checked={status.discord.enabled} disabled={busy} onCheckedChange={(on) => run(() => social.setDiscordEnabled(on))} />
 				</label>
 				{#if status.discord.enabled}
 					<p class="text-xs {status.discord.error ? 'text-destructive' : 'text-muted-foreground'}">
