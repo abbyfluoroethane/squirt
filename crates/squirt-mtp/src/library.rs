@@ -86,7 +86,9 @@ impl Zune {
             &[storage, parent, fmt as u32, 0, 0],
             Some(&encode_prop_list(0, props)),
         )?;
-        reply.params.get(2).copied().ok_or(DeviceError::Unexpected("no handle for new object"))
+        let h = reply.params.get(2).copied().ok_or(DeviceError::Unexpected("no handle for new object"))?;
+        self.note_created(parent, props, h);
+        Ok(h)
     }
 
     fn ensure_artist(&mut self, storage: u32, artists_dir: u32, name: &str) -> Result<u32, DeviceError> {
@@ -159,6 +161,18 @@ impl Zune {
         bytes: &[u8],
         art_jpeg: Option<&[u8]>,
     ) -> Result<PushOutcome, DeviceError> {
+        self.push_track_progress(storage, t, bytes, art_jpeg, &mut |_| {})
+    }
+
+    /// Like [`Self::push_track`], reporting file bytes sent through `progress`.
+    pub fn push_track_progress(
+        &mut self,
+        storage: u32,
+        t: &Track,
+        bytes: &[u8],
+        art_jpeg: Option<&[u8]>,
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<PushOutcome, DeviceError> {
         let music = self.ensure_folder(storage, ROOT, "Music")?;
         let artist_dir = self.ensure_folder(storage, music, &safe_name(&t.album_artist))?;
         let album_dir = self.ensure_folder(storage, artist_dir, &safe_name(&t.album))?;
@@ -196,7 +210,7 @@ impl Zune {
         if let Some(g) = &t.genre {
             props.push(str_prop(prop::GENRE, g));
         }
-        let handle = self.send_object(storage, album_dir, t.format, &props, bytes)?;
+        let handle = self.send_object_progress(storage, album_dir, t.format, &props, bytes, progress)?;
         self.add_reference(album, handle)?;
 
         let mut art_set = false;
@@ -208,5 +222,42 @@ impl Zune {
             }
         }
         Ok(PushOutcome::Pushed { handle, album, art_set })
+    }
+
+    /// Deletes an album's tracks, then any folders they leave empty. The
+    /// device removes the album and artist objects itself once nothing links
+    /// to them. Returns the number of tracks deleted.
+    pub fn delete_album(&mut self, storage: u32, album: u32) -> Result<usize, DeviceError> {
+        let tracks = self.references(album)?;
+        let mut folders = Vec::new();
+        for &t in &tracks {
+            let parent = self.prop_u32(t, prop::PARENT_OBJECT)?;
+            self.delete_object(t)?;
+            if !folders.contains(&parent) {
+                folders.push(parent);
+            }
+        }
+        // Remove emptied album folders, then emptied artist folders above them.
+        for _ in 0..2 {
+            let mut next = Vec::new();
+            for f in folders {
+                if f == ROOT || f == 0 || !self.object_handles(storage, 0, f)?.is_empty() {
+                    continue;
+                }
+                let parent = self.prop_u32(f, prop::PARENT_OBJECT)?;
+                let name = self.prop_string(parent, prop::OBJECT_FILE_NAME).unwrap_or_default();
+                self.delete_object(f)?;
+                // Never remove the top-level Music folder.
+                if name != "Music" && !next.contains(&parent) {
+                    next.push(parent);
+                }
+            }
+            folders = next;
+        }
+        // If the device kept the album object, remove it too.
+        if self.prop_u32(album, prop::OBJECT_FORMAT as u16).is_ok() {
+            let _ = self.delete_object(album);
+        }
+        Ok(tracks.len())
     }
 }

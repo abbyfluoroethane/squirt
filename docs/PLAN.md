@@ -34,7 +34,13 @@
      ignores a track's Artist/Album properties unless the track links to an
      artist object (0xDAB9) and an album object (0xDABB). See
      `crates/squirt-mtp/src/library.rs`.
-2. **Library sync:** list, delete and dedupe on-device content; playlists.
+2. **Library sync:**
+   - [x] Push many files and folders in one connection (`squirt push DIR...`),
+     with a progress bar, skipping tracks already on the device. A cache of
+     folder contents makes this fast. About 6 MB/s on a Zune HD; the device is
+     the bottleneck.
+   - [x] Delete albums with their tracks and emptied folders (`squirt albums --delete-matching`).
+   - [ ] Playlists. More formats (AAC/M4A). Single-track delete.
 3. **Video:** ffmpeg presets. Zune HD: H.264 Baseline at 480x272 (720p for
    dock/TV out; check this). Classic: 320x240.
 4. **Desktop app:** Tauri + Svelte. Drag-and-drop, device view, transfer queue.

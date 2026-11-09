@@ -6,6 +6,7 @@ use crate::dataset::{DeviceInfo, Reader, Truncated};
 use crate::devices::{self, FoundZune};
 use crate::mtpz::{self, MtpzError, MtpzKeys};
 use crate::transport::{Transport, TransportError};
+use std::collections::HashMap;
 use thiserror::Error;
 
 /// Parent handle meaning "root of the storage".
@@ -163,6 +164,15 @@ pub struct Zune {
     pub found: FoundZune,
     pub info: DeviceInfo,
     t: Transport,
+    /// parent handle -> (file name -> handle), filled lazily per folder.
+    names: HashMap<u32, HashMap<String, u32>>,
+}
+
+fn file_name_of(props: &[(u16, PropValue)]) -> Option<&str> {
+    props.iter().find_map(|(c, v)| match (c, v) {
+        (&prop::OBJECT_FILE_NAME, PropValue::Str(s)) => Some(s.as_str()),
+        _ => None,
+    })
 }
 
 impl Zune {
@@ -174,7 +184,7 @@ impl Zune {
         let data = t.transact(op::GET_DEVICE_INFO, &[], None)?.data;
         let info = DeviceInfo::parse(&data.ok_or(DeviceError::NoData("DeviceInfo"))?)?;
         t.open_session(1)?;
-        let mut z = Self { found, info, t };
+        let mut z = Self { found, info, t, names: HashMap::new() };
         // List storage before the handshake, as the reference flow does.
         z.storage_ids()?;
         if let Some(keys) = keys {
@@ -238,6 +248,13 @@ impl Zune {
         Ok(Reader::new(&d).u16()?)
     }
 
+    pub fn prop_u32(&mut self, handle: u32, code: u16) -> Result<u32, DeviceError> {
+        let d = self.data(op::GET_OBJECT_PROP_VALUE, &[handle, code as u32], "ObjectPropValue")?;
+        let mut r = Reader::new(&d);
+        // Accept u16 values too (for example ObjectFormat).
+        Ok(if d.len() == 2 { r.u16()? as u32 } else { r.u32()? })
+    }
+
     pub fn props_supported(&mut self, format: u16) -> Result<Vec<u16>, DeviceError> {
         let d = self.data(op::GET_OBJECT_PROPS_SUPPORTED, &[format as u32], "ObjectPropsSupported")?;
         Ok(Reader::new(&d).u16_array()?)
@@ -253,6 +270,19 @@ impl Zune {
         props: &[(u16, PropValue)],
         bytes: &[u8],
     ) -> Result<u32, DeviceError> {
+        self.send_object_progress(storage, parent, format, props, bytes, &mut |_| {})
+    }
+
+    /// Like [`Self::send_object`], reporting bytes sent through `progress`.
+    pub fn send_object_progress(
+        &mut self,
+        storage: u32,
+        parent: u32,
+        format: u16,
+        props: &[(u16, PropValue)],
+        bytes: &[u8],
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<u32, DeviceError> {
         let size = bytes.len() as u64;
         let reply = self.t.transact(
             op::SEND_OBJECT_PROP_LIST,
@@ -260,8 +290,18 @@ impl Zune {
             Some(&encode_prop_list(0, props)),
         )?;
         let handle = *reply.params.get(2).ok_or(DeviceError::Unexpected("no handle from SendObjectPropList"))?;
-        self.t.transact(op::SEND_OBJECT, &[], Some(bytes))?;
+        self.t.transact_progress(op::SEND_OBJECT, &[], Some(bytes), progress)?;
+        if let Some(name) = file_name_of(props) {
+            self.remember(parent, name, handle);
+        }
         Ok(handle)
+    }
+
+    /// Records an object created by another module.
+    pub(crate) fn note_created(&mut self, parent: u32, props: &[(u16, PropValue)], handle: u32) {
+        if let Some(name) = file_name_of(props) {
+            self.remember(parent, name, handle);
+        }
     }
 
     /// All properties of one object, via GetObjectPropList (all props, depth 0).
@@ -291,14 +331,48 @@ impl Zune {
         self.u32_array(op::GET_OBJECT_REFERENCES, &[handle], "ObjectReferences")
     }
 
-    /// Finds a child of `parent` by file name.
-    pub fn find_child(&mut self, storage: u32, parent: u32, name: &str) -> Result<Option<u32>, DeviceError> {
-        for h in self.object_handles(storage, 0, parent)? {
-            if self.prop_string(h, prop::OBJECT_FILE_NAME)? == name {
-                return Ok(Some(h));
+    /// Loads the file names of `parent`'s children into the cache. Uses one
+    /// GetObjectPropList (depth 1) for folders, and per-object lookups at the root.
+    fn load_names(&mut self, storage: u32, parent: u32) -> Result<(), DeviceError> {
+        if self.names.contains_key(&parent) {
+            return Ok(());
+        }
+        let mut map = HashMap::new();
+        if parent == ROOT {
+            for h in self.object_handles(storage, 0, ROOT)? {
+                map.insert(self.prop_string(h, prop::OBJECT_FILE_NAME)?, h);
+            }
+        } else {
+            let d = self.data(
+                op::GET_OBJECT_PROP_LIST,
+                &[parent, 0, prop::OBJECT_FILE_NAME as u32, 0, 1],
+                "ObjectPropList",
+            )?;
+            let mut r = Reader::new(&d);
+            for _ in 0..r.u32()? {
+                let h = r.u32()?;
+                let code = r.u16()?;
+                let dt = r.u16()?;
+                let v = read_value(&mut r, dt)?;
+                if let (true, true, AnyValue::Str(name)) = (h != parent, code == prop::OBJECT_FILE_NAME, v) {
+                    map.insert(name, h);
+                }
             }
         }
-        Ok(None)
+        self.names.insert(parent, map);
+        Ok(())
+    }
+
+    fn remember(&mut self, parent: u32, name: &str, handle: u32) {
+        if let Some(m) = self.names.get_mut(&parent) {
+            m.insert(name.to_string(), handle);
+        }
+    }
+
+    /// Finds a child of `parent` by file name.
+    pub fn find_child(&mut self, storage: u32, parent: u32, name: &str) -> Result<Option<u32>, DeviceError> {
+        self.load_names(storage, parent)?;
+        Ok(self.names[&parent].get(name).copied())
     }
 
     /// Returns the folder `name` under `parent`, creating it if needed.
@@ -311,11 +385,16 @@ impl Zune {
             &[storage, parent, format::ASSOCIATION as u32, 0, 0],
             Some(&encode_prop_list(0, &[(prop::OBJECT_FILE_NAME, PropValue::Str(name.into()))])),
         )?;
-        reply.params.get(2).copied().ok_or(DeviceError::Unexpected("no handle for new folder"))
+        let h = reply.params.get(2).copied().ok_or(DeviceError::Unexpected("no handle for new folder"))?;
+        self.remember(parent, name, h);
+        self.names.insert(h, HashMap::new()); // A new folder is empty.
+        Ok(h)
     }
 
     pub fn delete_object(&mut self, handle: u32) -> Result<(), DeviceError> {
         self.t.transact(op::DELETE_OBJECT, &[handle, 0], None)?;
+        // The device may also delete linked objects, so drop the whole cache.
+        self.names.clear();
         Ok(())
     }
 }

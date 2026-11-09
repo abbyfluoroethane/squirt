@@ -31,9 +31,11 @@ enum Cmd {
         #[arg(long)]
         keys: Option<PathBuf>,
     },
-    /// Copy an MP3 to Music/<Artist>/<Album>/, with metadata from its tags.
+    /// Copy music files and folders to the Zune, with metadata and cover art.
     Push {
-        file: PathBuf,
+        /// Files or folders (folders are searched recursively).
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
         #[arg(long)]
         keys: Option<PathBuf>,
     },
@@ -49,6 +51,14 @@ enum Cmd {
     Art {
         album: String,
         out: PathBuf,
+        #[arg(long)]
+        keys: Option<PathBuf>,
+    },
+    /// List albums, or delete albums whose name matches (with their tracks).
+    Albums {
+        /// Delete every album whose name contains this text.
+        #[arg(long)]
+        delete_matching: Option<String>,
         #[arg(long)]
         keys: Option<PathBuf>,
     },
@@ -145,28 +155,7 @@ fn main() -> Result<()> {
                 println!("MP3 props supported: {}", props.join(" "));
             }
         }
-        Cmd::Push { file, keys } => {
-            let meta = TrackMeta::read(&file)?;
-            let art = meta.art.as_deref().map(scale_art).transpose()?;
-            let bytes = std::fs::read(&file)?;
-            let keys = load_keys(keys)?;
-            let mut z = Zune::connect(Some(&keys))?;
-            let storage = *z.storage_ids()?.first().context("no storage")?;
-            let t0 = std::time::Instant::now();
-            match z.push_track(storage, &meta.track, &bytes, art.as_deref())? {
-                PushOutcome::AlreadyPresent { handle } => println!("already on device ({handle:#010x})"),
-                PushOutcome::Pushed { handle, album, art_set } => {
-                    let secs = t0.elapsed().as_secs_f64();
-                    println!(
-                        "pushed {} - {} -> {handle:#010x}, album {album:#010x}{} ({:.1} MB in {secs:.1}s)",
-                        meta.track.artist,
-                        meta.track.title,
-                        if art_set { ", art set" } else { "" },
-                        bytes.len() as f64 / 1e6
-                    );
-                }
-            }
-        }
+        Cmd::Push { paths, keys } => push(paths, keys)?,
         Cmd::Props { handles, keys } => {
             let keys = load_keys(keys)?;
             let mut z = Zune::connect(Some(&keys))?;
@@ -204,6 +193,24 @@ fn main() -> Result<()> {
             let bytes = z.prop_bytes(parse_handle(&album)?, 0xDC86)?;
             std::fs::write(&out, &bytes)?;
             println!("wrote {} bytes to {}", bytes.len(), out.display());
+        }
+        Cmd::Albums { delete_matching, keys } => {
+            let keys = load_keys(keys)?;
+            let mut z = Zune::connect(Some(&keys))?;
+            let storage = *z.storage_ids()?.first().context("no storage")?;
+            let albums_dir = z.find_child(storage, device::ROOT, "Albums")?.context("no Albums folder")?;
+            for h in z.object_handles(storage, 0, albums_dir)? {
+                let name = z.prop_string(h, prop::NAME).unwrap_or_default();
+                let artist = z.prop_string(h, prop::ARTIST).unwrap_or_default();
+                match &delete_matching {
+                    Some(m) if name.contains(m.as_str()) => {
+                        let n = z.delete_album(storage, h)?;
+                        println!("deleted {artist} - {name} ({n} tracks)");
+                    }
+                    Some(_) => {}
+                    None => println!("{h:#010x}  {artist} - {name}"),
+                }
+            }
         }
         Cmd::Rm { handle, keys } => {
             let keys = load_keys(keys)?;
@@ -291,4 +298,111 @@ fn scale_art(data: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 88).encode_image(&img)?;
     Ok(out)
+}
+
+const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wma"];
+
+/// Expands files and folders into a sorted list of supported audio files.
+fn collect_audio(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    fn walk(p: &std::path::Path, out: &mut Vec<PathBuf>) -> Result<()> {
+        if p.is_dir() {
+            let mut entries: Vec<_> = std::fs::read_dir(p)?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+            entries.sort();
+            for e in entries {
+                if !e.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+                    walk(&e, out)?;
+                }
+            }
+        } else if p
+            .extension()
+            .is_some_and(|e| AUDIO_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
+        {
+            out.push(p.to_path_buf());
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    for p in paths {
+        anyhow::ensure!(p.exists(), "{} does not exist", p.display());
+        walk(p, &mut out)?;
+    }
+    Ok(out)
+}
+
+fn push(paths: Vec<PathBuf>, keys: Option<PathBuf>) -> Result<()> {
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    let files = collect_audio(&paths)?;
+    anyhow::ensure!(!files.is_empty(), "no supported audio files found ({})", AUDIO_EXTENSIONS.join(", "));
+    let total_bytes: u64 = files.iter().filter_map(|f| f.metadata().ok()).map(|m| m.len()).sum();
+
+    let keys = load_keys(keys)?;
+    let mut z = Zune::connect(Some(&keys))?;
+    let storage = *z.storage_ids()?.first().context("no storage")?;
+    let free = z.storage_info(storage)?.free_bytes;
+    anyhow::ensure!(
+        total_bytes < free,
+        "not enough space: need {:.1} MB, {:.1} MB free",
+        total_bytes as f64 / 1e6,
+        free as f64 / 1e6
+    );
+
+    let bar = ProgressBar::new(total_bytes);
+    bar.set_style(
+        ProgressStyle::with_template("{bar:30.cyan/blue} {bytes}/{total_bytes} {binary_bytes_per_sec} eta {eta}  {msg}")
+            .unwrap()
+            .progress_chars("=> "),
+    );
+    let (mut pushed, mut skipped, mut failed) = (0, 0, Vec::new());
+    let mut pushed_bytes = 0u64;
+    let t0 = std::time::Instant::now();
+    // Scaled art per album, so each album's art is decoded and scaled once.
+    let mut art_cache: std::collections::HashMap<(String, String), Option<Vec<u8>>> = Default::default();
+
+    for (i, file) in files.iter().enumerate() {
+        let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let base = bar.position();
+        let result = (|| -> Result<PushOutcome> {
+            let meta = TrackMeta::read(file)?;
+            bar.set_message(format!("[{}/{}] {} - {}", i + 1, files.len(), meta.track.artist, meta.track.title));
+            let key = (meta.track.album_artist.clone(), meta.track.album.clone());
+            if !art_cache.contains_key(&key) {
+                let art = match meta.art.as_deref().map(scale_art) {
+                    Some(Ok(a)) => Some(a),
+                    Some(Err(e)) => {
+                        bar.println(format!("warning: cover art for {:?} unusable: {e:#}", meta.track.album));
+                        None
+                    }
+                    None => None,
+                };
+                art_cache.insert(key.clone(), art);
+            }
+            let bytes = std::fs::read(file)?;
+            Ok(z.push_track_progress(storage, &meta.track, &bytes, art_cache[&key].as_deref(), &mut |sent| {
+                bar.set_position(base + sent as u64)
+            })?)
+        })();
+        bar.set_position(base + size);
+        match result {
+            Ok(PushOutcome::Pushed { .. }) => {
+                pushed += 1;
+                pushed_bytes += size;
+            }
+            Ok(PushOutcome::AlreadyPresent { .. }) => skipped += 1,
+            Err(e) => {
+                bar.println(format!("failed: {}: {e:#}", file.display()));
+                failed.push(file.clone());
+            }
+        }
+    }
+    bar.finish_and_clear();
+    let secs = t0.elapsed().as_secs_f64();
+    println!(
+        "pushed {pushed}, already on device {skipped}, failed {}. {:.1} MB in {secs:.1}s ({:.1} MB/s)",
+        failed.len(),
+        pushed_bytes as f64 / 1e6,
+        pushed_bytes as f64 / 1e6 / secs.max(0.001)
+    );
+    anyhow::ensure!(failed.is_empty(), "{} file(s) failed", failed.len());
+    Ok(())
 }

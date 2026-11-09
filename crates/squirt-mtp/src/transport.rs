@@ -13,6 +13,10 @@ use thiserror::Error;
 
 const TRANSFER_SIZE: usize = 128 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(10);
+const PROGRESS_CHUNK: usize = 1024 * 1024;
+// Benchmarked on a Zune HD: 32 KB to 4 MB transfers and 2 to 16 in flight all
+// give 5.7-6.0 MB/s. The device is the bottleneck.
+const NUM_TRANSFERS: usize = 8;
 
 #[derive(Debug, Error)]
 pub enum TransportError {
@@ -90,10 +94,12 @@ impl Transport {
         let out = iface
             .endpoint::<Bulk, Out>(ep_out)?
             .writer(TRANSFER_SIZE)
+            .with_num_transfers(NUM_TRANSFERS)
             .with_write_timeout(TIMEOUT);
         let mut inp = iface
             .endpoint::<Bulk, In>(ep_in)?
             .reader(TRANSFER_SIZE)
+            .with_num_transfers(NUM_TRANSFERS)
             .with_read_timeout(Duration::from_millis(300));
         // A previous run may have stopped mid-transaction, leaving the device
         // waiting for us to read its reply. It will not accept new commands
@@ -163,6 +169,18 @@ impl Transport {
         params: &[u32],
         data_out: Option<&[u8]>,
     ) -> Result<Reply, TransportError> {
+        self.transact_progress(code, params, data_out, &mut |_| {})
+    }
+
+    /// Like [`Self::transact`], calling `progress` with the number of payload
+    /// bytes sent so far as the data phase goes out.
+    pub fn transact_progress(
+        &mut self,
+        code: u16,
+        params: &[u32],
+        data_out: Option<&[u8]>,
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<Reply, TransportError> {
         let tid = self.next_tid;
         self.next_tid = self.next_tid.wrapping_add(1);
         let trace = std::env::var_os("SQUIRT_TRACE").is_some();
@@ -172,19 +190,18 @@ impl Transport {
 
         self.send(&Container::command(code, tid, params)?)?;
         if let Some(data) = data_out {
-            let bytes = Container {
-                kind: ContainerType::Data,
-                code,
-                transaction_id: tid,
-                payload: data.to_vec(),
-            }
-            .encode();
             // The Zune HD rejects (0x2002) a data container sent as one
             // transfer. It wants the 12-byte header as its own short transfer,
             // then the payload, mirroring how it sends data to us.
-            self.out.write_all(&bytes[..crate::container::HEADER_LEN])?;
+            let header = Container::data_header(code, tid, data.len())?;
+            self.out.write_all(&header)?;
             self.out.flush_end()?;
-            self.out.write_all(&bytes[crate::container::HEADER_LEN..])?;
+            let mut sent = 0;
+            for chunk in data.chunks(PROGRESS_CHUNK) {
+                self.out.write_all(chunk)?;
+                sent += chunk.len();
+                progress(sent);
+            }
             self.out.flush_end()?;
         }
 

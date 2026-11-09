@@ -66,6 +66,8 @@ pub enum ContainerError {
     LengthMismatch { declared: u32, actual: usize },
     #[error("unknown container type {0:#06x}")]
     BadType(u16),
+    #[error("payload of {0} bytes does not fit a container (4 GB limit)")]
+    TooLarge(usize),
     #[error("too many parameters ({0}, max 5)")]
     TooManyParams(usize),
 }
@@ -89,6 +91,17 @@ impl Container {
             transaction_id,
             payload: params.iter().flat_map(|p| p.to_le_bytes()).collect(),
         })
+    }
+
+    /// The 12-byte header of a data container whose payload is `payload_len` bytes.
+    pub fn data_header(code: u16, transaction_id: u32, payload_len: usize) -> Result<[u8; HEADER_LEN], ContainerError> {
+        let len = u32::try_from(HEADER_LEN + payload_len).map_err(|_| ContainerError::TooLarge(payload_len))?;
+        let mut h = [0u8; HEADER_LEN];
+        h[..4].copy_from_slice(&len.to_le_bytes());
+        h[4..6].copy_from_slice(&(ContainerType::Data as u16).to_le_bytes());
+        h[6..8].copy_from_slice(&code.to_le_bytes());
+        h[8..].copy_from_slice(&transaction_id.to_le_bytes());
+        Ok(h)
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -141,6 +154,12 @@ mod tests {
         let back = Container::decode(&bytes).unwrap();
         assert_eq!(back, c);
         assert_eq!(back.params(), vec![1]);
+    }
+
+    #[test]
+    fn data_header_matches_encode() {
+        let c = Container { kind: ContainerType::Data, code: op::SEND_OBJECT, transaction_id: 7, payload: vec![9; 5] };
+        assert_eq!(Container::data_header(op::SEND_OBJECT, 7, 5).unwrap().to_vec(), c.encode()[..HEADER_LEN].to_vec());
     }
 
     #[test]
