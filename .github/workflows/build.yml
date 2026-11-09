@@ -6,8 +6,9 @@
 #   Windows, uploaded as workflow artifacts.
 # - release: on a v* tag, a draft GitHub release with every bundle.
 #
-# Last.fm sign-in needs the SQUIRT_LASTFM_API_SECRET repository secret.
-# Builds without it work, with Last.fm sign-in unavailable.
+# Repository secrets compiled into the bundles:
+# - SQUIRT_MTPZ_DATA: the MTPZ key file. Without it, users need ~/.mtpz-data.
+# - SQUIRT_LASTFM_API_SECRET: without it, Last.fm sign-in is unavailable.
 name: build
 
 on:
@@ -101,6 +102,7 @@ jobs:
         shell: bash
         env:
           SQUIRT_LASTFM_API_SECRET: ${{ secrets.SQUIRT_LASTFM_API_SECRET }}
+          SQUIRT_MTPZ_DATA: ${{ secrets.SQUIRT_MTPZ_DATA }}
         run: |
           npm ci
           npx tauri build --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}

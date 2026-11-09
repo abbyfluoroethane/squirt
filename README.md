@@ -28,8 +28,10 @@ Status: early. Works with the Zune HD. Flash and hard-drive Zunes come later.
 
 ## MTPZ keys
 
-Zunes require an MTPZ handshake before they accept transfers. Squirt does not
-include the keys. Put a libmtp-format key file at `~/.mtpz-data`, then check it:
+Zunes require an MTPZ handshake before they accept transfers. The keys are not
+in the repository. Release builds compile them in from the `SQUIRT_MTPZ_DATA`
+CI secret. For local builds, set the same variable in `.cargo/config.toml`, or
+put a libmtp-format key file at `~/.mtpz-data` (it takes precedence). Check with:
 
     cargo run -- keys
 

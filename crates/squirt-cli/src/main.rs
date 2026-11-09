@@ -388,10 +388,10 @@ fn main() -> Result<()> {
 }
 
 fn load_keys(path: Option<PathBuf>) -> Result<MtpzKeys> {
-    let path = path
-        .or_else(MtpzKeys::default_path)
-        .context("no key path given and no home directory found")?;
-    MtpzKeys::load(&path).with_context(|| format!("MTPZ key file {}", path.display()))
+    match path {
+        Some(p) => MtpzKeys::load(&p).with_context(|| format!("MTPZ key file {}", p.display())),
+        None => MtpzKeys::find().context("MTPZ keys"),
+    }
 }
 
 fn parse_handle(s: &str) -> Result<u32> {

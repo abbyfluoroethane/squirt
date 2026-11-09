@@ -72,7 +72,11 @@ impl Service {
                 Ok(_) => (true, None),
                 Err(e) => (false, Some(e.to_string())),
             },
-            _ => (false, None),
+            _ => match MtpzKeys::builtin() {
+                Some(Ok(_)) => (true, None),
+                Some(Err(e)) => (false, Some(format!("built-in keys: {e}"))),
+                None => (false, None),
+            },
         };
         SetupStatus {
             done: finished || has_folders,

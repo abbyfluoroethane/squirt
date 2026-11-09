@@ -3,9 +3,12 @@
 //! Clean-room implementation written only from `docs/mtpz-protocol.md`.
 //! Do not consult libmtp or any other GPL/LGPL source when changing this file.
 //!
-//! Squirt does not ship keys. Users supply a file in the `.mtpz-data` format:
-//! five hex lines, in this order: public exponent, encryption key (unused),
-//! modulus, private exponent, certificate chain.
+//! Keys come in the `.mtpz-data` format: five hex lines, in this order:
+//! public exponent, encryption key (unused), modulus, private exponent,
+//! certificate chain. A file at `~/.mtpz-data` is used if present; otherwise
+//! the keys built in from the `SQUIRT_MTPZ_DATA` environment variable at
+//! compile time (set in the git-ignored `.cargo/config.toml`, or from a CI
+//! secret). The keys themselves are never in the repository.
 
 use crate::container::op;
 use crate::dataset;
@@ -34,7 +37,12 @@ pub enum KeyError {
     Hex { line: usize, field: &'static str },
     #[error("modulus is {0} bytes, expected 128 (RSA-1024)")]
     ModulusSize(usize),
+    #[error("no MTPZ keys: put a key file at ~/.mtpz-data")]
+    Missing,
 }
+
+/// Key file contents compiled in at build time, if any.
+const BUILTIN: Option<&str> = option_env!("SQUIRT_MTPZ_DATA");
 
 pub struct MtpzKeys {
     pub public_exponent: Vec<u8>,
@@ -85,6 +93,19 @@ impl MtpzKeys {
     pub fn load(path: &Path) -> Result<Self, KeyError> {
         let text = std::fs::read_to_string(path).map_err(|e| KeyError::Io(path.into(), e))?;
         Self::parse(&text)
+    }
+
+    /// The keys compiled into this build, if any.
+    pub fn builtin() -> Option<Result<Self, KeyError>> {
+        BUILTIN.filter(|t| !t.trim().is_empty()).map(Self::parse)
+    }
+
+    /// `~/.mtpz-data` if it exists, otherwise the built-in keys.
+    pub fn find() -> Result<Self, KeyError> {
+        match Self::default_path() {
+            Some(p) if p.exists() => Self::load(&p),
+            _ => Self::builtin().unwrap_or(Err(KeyError::Missing)),
+        }
     }
 
     /// Default location, shared with other tools: `~/.mtpz-data`.

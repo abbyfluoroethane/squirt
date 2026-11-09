@@ -514,10 +514,9 @@ impl Service {
                 dev.status = DeviceStatus::default();
                 return dev.status.clone();
             }
-            let keys = match MtpzKeys::default_path().map(|p| MtpzKeys::load(&p)) {
-                Some(Ok(k)) => k,
-                Some(Err(e)) => return problem(&mut dev, format!("MTPZ keys: {e}")),
-                None => return problem(&mut dev, "no home directory for ~/.mtpz-data".into()),
+            let keys = match MtpzKeys::find() {
+                Ok(k) => k,
+                Err(e) => return problem(&mut dev, format!("MTPZ keys: {e}")),
             };
             match Zune::connect(Some(&keys)) {
                 Ok(mut z) => {
