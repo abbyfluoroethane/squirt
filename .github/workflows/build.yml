@@ -1,0 +1,136 @@
+# Checks and builds Squirt on every push and pull request.
+#
+# - check: svelte-check, the frontend build and the Rust tests (Linux).
+# - ffmpeg: the LGPL sidecars (cached; see ffmpeg.yml).
+# - build: release bundles for macOS (Apple silicon, Intel), Linux and
+#   Windows, uploaded as workflow artifacts.
+# - release: on a v* tag, a draft GitHub release with every bundle.
+#
+# Last.fm sign-in needs the SQUIRT_LASTFM_API_SECRET repository secret.
+# Builds without it work, with Last.fm sign-in unavailable.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev libasound2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: Frontend
+        working-directory: app
+        run: |
+          npm ci
+          npm run check
+          npm run build
+      - name: Rust tests
+        run: cargo test --workspace --locked
+
+  ffmpeg:
+    uses: ./.github/workflows/ffmpeg.yml
+
+  build:
+    needs: [check, ffmpeg]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, target: aarch64-apple-darwin, ffmpeg: aarch64-apple-darwin, bundles: 'dmg' }
+          - { os: macos-15-intel, target: x86_64-apple-darwin, ffmpeg: x86_64-apple-darwin, bundles: 'dmg' }
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, ffmpeg: x86_64-unknown-linux-gnu, bundles: 'deb,rpm,appimage' }
+          - { os: windows-2022, target: x86_64-pc-windows-msvc, ffmpeg: x86_64-pc-windows-gnu, bundles: 'msi,nsis' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux packages
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev libasound2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffmpeg-${{ matrix.ffmpeg }}
+          path: app/src-tauri/binaries
+      - name: Sidecar names
+        # The Windows ffmpeg is built with MinGW (static), the app with MSVC;
+        # Tauri looks for sidecars named after the app's target.
+        shell: bash
+        run: |
+          cd app/src-tauri/binaries
+          if [ "${{ matrix.ffmpeg }}" != "${{ matrix.target }}" ]; then
+            for b in ffmpeg ffprobe; do mv "$b-${{ matrix.ffmpeg }}.exe" "$b-${{ matrix.target }}.exe"; done
+          fi
+          chmod +x ffmpeg-* ffprobe-* || true
+          ls -la
+      - name: Build
+        working-directory: app
+        shell: bash
+        env:
+          SQUIRT_LASTFM_API_SECRET: ${{ secrets.SQUIRT_LASTFM_API_SECRET }}
+        run: |
+          npm ci
+          npx tauri build --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: squirt-${{ matrix.target }}
+          if-no-files-found: error
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: squirt-*
+          path: dist
+          merge-multiple: true
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" \
+            --draft --generate-notes --title "Squirt ${GITHUB_REF_NAME#v}"
