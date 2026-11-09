@@ -88,6 +88,8 @@ pub(crate) struct SocialState {
     scrobbles: VecDeque<ScrobbleDto>,
     retry: Vec<Pending>,
     art: HashMap<(String, String), Option<String>>,
+    /// Last profile fetched and when; reused for 30 s (cleared on a scrobble).
+    profile: Option<(Instant, LastFmProfile)>,
 }
 
 impl SocialState {
@@ -103,6 +105,7 @@ impl SocialState {
             scrobbles: VecDeque::new(),
             retry: Vec::new(),
             art: HashMap::new(),
+            profile: None,
         }
     }
 
@@ -213,6 +216,7 @@ impl Service {
             s.config.lastfm.session_key.clear();
             s.config.lastfm.username.clear();
             s.auth_token = None;
+            s.profile = None;
             s.save()?;
         }
         Ok(self.social_status())
@@ -244,16 +248,24 @@ impl Service {
         Ok(self.social_status())
     }
 
-    /// The signed-in user's Last.fm profile and recent tracks.
+    /// The signed-in user's Last.fm profile and recent tracks. Cached for 30 s
+    /// so reopening the Social tab doesn't hit Last.fm each time.
     pub fn lastfm_profile(&self) -> Result<LastFmProfile> {
         let (lf, user) = {
             let s = self.social.lock().unwrap();
+            if let Some((at, p)) = &s.profile {
+                if at.elapsed() < Duration::from_secs(30) && p.user.name.eq_ignore_ascii_case(&s.config.lastfm.username) {
+                    return Ok(p.clone());
+                }
+            }
             (s.lastfm().ok_or("Last.fm is not set up")?, s.config.lastfm.username.clone())
         };
         if user.is_empty() {
             return Err("not signed in to Last.fm".into());
         }
-        Ok(LastFmProfile { user: lf.user_info(&user)?, recent: lf.recent_tracks(&user, 30)? })
+        let p = LastFmProfile { user: lf.user_info(&user)?, recent: lf.recent_tracks(&user, 30)? };
+        self.social.lock().unwrap().profile = Some((Instant::now(), p.clone()));
+        Ok(p)
     }
 
     // -------------------------------------------------------- background
@@ -347,6 +359,7 @@ impl Service {
         match result {
             Ok(()) => {
                 s.lastfm_error = None;
+                s.profile = None; // Recent tracks changed.
                 s.record(&m, None);
             }
             Err(e) => {

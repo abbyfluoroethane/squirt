@@ -7,23 +7,25 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { ArrowSquareOut, MusicNotesSimple } from 'phosphor-svelte';
+	import { socialCache as cache } from '$lib/social-cache.svelte';
 
 	let { social }: { social: SocialApi } = $props();
 
-	let status = $state<SocialStatus | null>(null);
-	let profile = $state<LastFmProfile | null>(null);
+	// Shown from the cache straight away; refreshed in the background.
+	const status = $derived(cache.status);
+	const profile = $derived(cache.status && !cache.status.lastfm.connected ? null : cache.profile);
 	let profileError = $state<string | null>(null);
 	let busy = $state(false);
 	let actionError = $state<string | null>(null);
 
 
 	async function refreshProfile() {
-		if (!status?.lastfm.connected) {
-			profile = null;
+		if (!cache.status?.lastfm.connected) {
+			if (cache.status) cache.setProfile(null);
 			return;
 		}
 		try {
-			profile = await social.profile();
+			cache.setProfile(await social.profile());
 			profileError = null;
 		} catch (e) {
 			profileError = String(e instanceof Error ? e.message : e);
@@ -31,10 +33,10 @@
 	}
 
 	async function refreshStatus() {
-		const before = status?.scrobbles.length ?? 0;
-		status = await social.status();
+		const before = cache.status?.scrobbles.length ?? 0;
+		cache.status = await social.status();
 		// A new scrobble: refresh recent tracks so it shows up.
-		if (status.scrobbles.length !== before) refreshProfile();
+		if (cache.status.scrobbles.length !== before) refreshProfile();
 	}
 
 	onMount(() => {
@@ -52,7 +54,7 @@
 		actionError = null;
 		try {
 			const s = await f();
-			if (s) status = s;
+			if (s) cache.status = s;
 		} catch (e) {
 			actionError = String(e instanceof Error ? e.message : e);
 		} finally {
@@ -67,7 +69,7 @@
 	});
 	const finish = () => run(async () => {
 		const s = await social.finishAuth();
-		status = s;
+		cache.status = s;
 		await refreshProfile();
 		return s;
 	});
@@ -136,7 +138,7 @@
 		<h3 class="colhead mb-2">recently played</h3>
 		{#if !status?.lastfm.connected}
 			<p class="max-w-md text-muted-foreground">connect last.fm to see what you have been listening to, here and everywhere else you scrobble.</p>
-		{:else if profileError}
+		{:else if profileError && !profile}
 			<p class="text-destructive">{profileError}</p>
 		{:else if profile}
 			<ScrollArea class="min-h-0 flex-1 pr-3">

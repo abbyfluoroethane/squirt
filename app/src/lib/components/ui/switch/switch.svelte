@@ -1,34 +1,49 @@
 <script lang="ts">
-	import { Switch as SwitchPrimitive } from "bits-ui";
-	import { cn, type WithoutChildrenOrChild } from "$lib/utils.js";
+	// Metro toggle, after the Zune HD / Windows Phone 7 switch: a rectangular
+	// outlined track that fills with the accent when on, a solid bar for the
+	// thumb, and an on/off label beside it.
+	import { Switch as SwitchPrimitive } from 'bits-ui';
+	import { cn, type WithoutChildrenOrChild } from '$lib/utils.js';
 
 	let {
 		ref = $bindable(null),
 		class: className,
 		checked = $bindable(false),
-		size = "default",
+		showLabel = true,
 		...restProps
-	}: WithoutChildrenOrChild<SwitchPrimitive.RootProps> & {
-		size?: "sm" | "default";
-	} = $props();
+	}: WithoutChildrenOrChild<SwitchPrimitive.RootProps> & { showLabel?: boolean } = $props();
 </script>
 
-<SwitchPrimitive.Root
-	bind:ref
-	bind:checked
-	data-slot="switch"
-	data-size={size}
-	class={cn(
-		"data-checked:bg-primary data-unchecked:bg-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 dark:data-unchecked:bg-input/80 shrink-0 rounded-full border border-transparent focus-visible:ring-1 aria-invalid:ring-1 group-has-[:focus-visible]/field-label:ring-0 group-has-[:focus-visible]/field-label:border-transparent data-[size=default]:h-[18.4px] data-[size=default]:w-[32px] data-[size=sm]:h-[14px] data-[size=sm]:w-[24px] peer group/switch relative inline-flex items-center transition-all outline-none after:absolute after:-inset-x-3 after:-inset-y-2 data-disabled:cursor-not-allowed data-disabled:opacity-50",
-		className
-	)}
-	{...restProps}
->
-	<SwitchPrimitive.Thumb
-		data-slot="switch-thumb"
+<span class="inline-flex items-center gap-2.5">
+	{#if showLabel}
+		<span class="w-5 text-right text-xs lowercase {checked ? 'text-foreground' : 'text-muted-foreground'}" aria-hidden="true">{checked ? 'on' : 'off'}</span>
+	{/if}
+	<SwitchPrimitive.Root
+		bind:ref
+		bind:checked
+		data-slot="switch"
 		class={cn(
-			"bg-background dark:data-unchecked:bg-foreground dark:data-checked:bg-primary-foreground rounded-full group-data-[size=default]/switch:size-4 group-data-[size=sm]/switch:size-3 group-data-[size=default]/switch:data-checked:translate-x-[calc(100%_-_2px)] group-data-[size=sm]/switch:data-checked:translate-x-[calc(100%_-_2px)] group-data-[size=default]/switch:data-unchecked:translate-x-0 group-data-[size=sm]/switch:data-unchecked:translate-x-0 pointer-events-none block ring-0 transition-transform",
-			"rtl:data-[state=checked]:translate-x-[calc(-100%)]"
+			'group/switch peer relative inline-flex h-5 w-9 shrink-0 items-center border-2 p-[2px] transition-colors outline-none',
+			'data-unchecked:border-muted-foreground data-checked:border-foreground',
+			'focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-1 focus-visible:ring-offset-background',
+			'data-disabled:cursor-not-allowed data-disabled:opacity-40',
+			'hover:data-unchecked:border-foreground',
+			className
 		)}
-	/>
-</SwitchPrimitive.Root>
+		{...restProps}
+	>
+		<!-- Accent fill, growing from the left as the thumb moves right. -->
+		<span
+			class="pointer-events-none absolute inset-[2px] origin-left bg-magenta transition-transform duration-150 ease-out group-data-unchecked/switch:scale-x-0"
+			aria-hidden="true"
+		></span>
+		<SwitchPrimitive.Thumb
+			data-slot="switch-thumb"
+			class={cn(
+				'pointer-events-none relative block h-full w-2.5 transition-transform duration-150 ease-out',
+				'data-unchecked:translate-x-0 data-unchecked:bg-muted-foreground',
+				'data-checked:translate-x-[18px] data-checked:bg-foreground'
+			)}
+		/>
+	</SwitchPrimitive.Root>
+</span>
