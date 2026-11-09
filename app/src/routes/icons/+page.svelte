@@ -11,6 +11,9 @@
 		{ id: 'flight', name: 'in flight', note: 'a music note trailing gradient motion arcs' }
 	] as const;
 	const sizes = [20, 48, 128];
+	const finalists = ['sbeam', 'beam', 's', 'droplet'] as const;
+	const names: Record<string, string> = { sbeam: 's beam', beam: 'beam', s: 's', droplet: 'droplet' };
+	const ladder = [20, 32, 48, 128, 256];
 </script>
 
 <svelte:head><title>Squirt icon workshop</title></svelte:head>
@@ -83,7 +86,45 @@
 
 <main class="min-h-dvh bg-background p-10 text-foreground">
 	<h1 class="pivot mb-2">icon workshop</h1>
-	<p class="mb-10 text-muted-foreground">each mark at title-bar (20), dock-ish (48) and large (128) sizes, on dark and light.</p>
+	<p class="mb-8 text-muted-foreground">finalists side by side, then every concept below.</p>
+
+	<section class="mb-14 flex flex-col gap-6">
+		<h2 class="subpivot">side by side</h2>
+		<div class="grid grid-cols-[6rem_repeat(4,1fr)] items-end gap-x-6 gap-y-4">
+			<span></span>
+			{#each finalists as f (f)}<span class="subpivot text-center">{names[f]}</span>{/each}
+			{#each ladder as size (size)}
+				<span class="tabular self-center text-xs text-muted-foreground">{size}px</span>
+				{#each finalists as f (f)}
+					<div class="flex justify-center">{@render icon(f, size, `ladder-${f}-${size}`)}</div>
+				{/each}
+			{/each}
+
+			<span class="self-center text-xs text-muted-foreground lowercase">title bar</span>
+			{#each finalists as f (f)}
+				<div class="flex items-center gap-2.5 bg-[#0b0b0b] px-3 py-2 text-[#999]">
+					<span class="flex gap-1.5"><span class="size-3 rounded-full bg-[#ff5f57]"></span><span class="size-3 rounded-full bg-[#febc2e]"></span><span class="size-3 rounded-full bg-[#28c840]"></span></span>
+					<span class="ml-3 flex items-center gap-2">{@render icon(f, 20, `tb-${f}`)}<span class="text-[0.95rem] font-semibold lowercase">squirt</span></span>
+				</div>
+			{/each}
+
+			<span class="self-center text-xs text-muted-foreground lowercase">dock</span>
+			{#each finalists as f (f)}
+				<div class="flex items-end justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#3b2a4a] to-[#1d1427] p-3">
+					<div class="size-12 rounded-xl bg-[#2f6fde]"></div>
+					<div class="flex size-12 items-center justify-center">{@render icon(f, 48, `dock-${f}`)}</div>
+					<div class="size-12 rounded-xl bg-[#e8e8e8]"></div>
+				</div>
+			{/each}
+
+			<span class="self-center text-xs text-muted-foreground lowercase">light</span>
+			{#each finalists as f (f)}
+				<div class="flex items-center justify-center gap-4 bg-[#f3f3f3] p-3 text-[#222]">{@render icon(f, 20, `l20-${f}`)}{@render icon(f, 64, `l64-${f}`)}</div>
+			{/each}
+		</div>
+	</section>
+
+	<h2 class="subpivot mb-4">all concepts</h2>
 	<div class="grid grid-cols-2 gap-6 xl:grid-cols-3">
 		{#each concepts as c (c.id)}
 			<section class="flex min-w-0 flex-col gap-3 border p-5">
