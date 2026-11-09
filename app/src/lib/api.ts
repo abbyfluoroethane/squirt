@@ -76,7 +76,68 @@ export interface PlayerApi {
 	volume(v: number): Promise<PlayerState>;
 }
 
+export interface ScrobbleEntry {
+	title: string;
+	artist: string;
+	album: string;
+	at: number;
+	error: string | null;
+}
+
+export interface SocialStatus {
+	lastfm: {
+		apiKey: string;
+		hasSecret: boolean;
+		connected: boolean;
+		username: string;
+		enabled: boolean;
+		authPending: boolean;
+		error: string | null;
+	};
+	discord: { clientId: string; enabled: boolean; connected: boolean; error: string | null };
+	scrobbles: ScrobbleEntry[];
+}
+
+export interface RecentTrack {
+	artist: string;
+	title: string;
+	album: string;
+	image: string | null;
+	nowPlaying: boolean;
+	playedAt: number | null;
+	url: string;
+}
+
+export interface LastFmProfile {
+	user: { name: string; playcount: number; image: string | null; url: string; registered: number | null };
+	recent: RecentTrack[];
+}
+
+export interface SocialApi {
+	status(): Promise<SocialStatus>;
+	setLastfmKeys(key: string, secret: string): Promise<SocialStatus>;
+	/** Returns the last.fm page where the user approves Squirt. */
+	beginAuth(): Promise<string>;
+	finishAuth(): Promise<SocialStatus>;
+	disconnect(): Promise<SocialStatus>;
+	setLastfmEnabled(on: boolean): Promise<SocialStatus>;
+	profile(): Promise<LastFmProfile>;
+	setDiscordClientId(id: string): Promise<SocialStatus>;
+	setDiscordEnabled(on: boolean): Promise<SocialStatus>;
+}
+
+/** Opens a web page in the user's browser. */
+export async function openExternal(url: string) {
+	if (isTauri) {
+		const { openUrl } = await import('@tauri-apps/plugin-opener');
+		await openUrl(url);
+	} else {
+		window.open(url, '_blank', 'noopener');
+	}
+}
+
 export interface Api {
+	social: SocialApi;
 	device(): Promise<DeviceStatus>;
 	collection(): Promise<Album[]>;
 	/** The music on the Zune itself (empty when none is connected). */
@@ -209,7 +270,63 @@ function mockPlayer(tracks: () => Track[]): PlayerApi {
 	};
 }
 
+function mockSocial(): SocialApi {
+	let st: SocialStatus = {
+		lastfm: { apiKey: '', hasSecret: false, connected: false, username: '', enabled: false, authPending: false, error: null },
+		discord: { clientId: '', enabled: false, connected: false, error: null },
+		scrobbles: []
+	};
+	const ret = async () => structuredClone(st);
+	return {
+		status: ret,
+		async setLastfmKeys(key, secret) {
+			st.lastfm.apiKey = key;
+			st.lastfm.hasSecret ||= !!secret;
+			return ret();
+		},
+		async beginAuth() {
+			st.lastfm.authPending = true;
+			return 'https://www.last.fm/api/auth/';
+		},
+		async finishAuth() {
+			st.lastfm = { ...st.lastfm, connected: true, username: 'abby', enabled: true, authPending: false };
+			return ret();
+		},
+		async disconnect() {
+			st.lastfm = { ...st.lastfm, connected: false, username: '' };
+			return ret();
+		},
+		async setLastfmEnabled(on) {
+			st.lastfm.enabled = on;
+			return ret();
+		},
+		async profile() {
+			return {
+				user: { name: 'abby', playcount: 48213, image: null, url: 'https://www.last.fm', registered: 1262304000 },
+				recent: MOCK_COLLECTION.slice(0, 8).map((a, i) => ({
+					artist: a.artist,
+					title: a.tracks[0].title,
+					album: a.title,
+					image: null,
+					nowPlaying: i === 0,
+					playedAt: i === 0 ? null : Math.floor(Date.now() / 1000) - i * 260,
+					url: 'https://www.last.fm'
+				}))
+			};
+		},
+		async setDiscordClientId(id) {
+			st.discord.clientId = id;
+			return ret();
+		},
+		async setDiscordEnabled(on) {
+			st.discord.enabled = on;
+			return ret();
+		}
+	};
+}
+
 const mock: Api = {
+	social: mockSocial(),
 	player: mockPlayer(() => MOCK_COLLECTION.flatMap((a) => a.tracks)),
 	async device() {
 		return {
@@ -252,7 +369,20 @@ async function tauriArt(albums: Album[]): Promise<Album[]> {
 	return withArt(albums, (k) => convertFileSrc(k, 'squirt'));
 }
 
+const tauriSocial: SocialApi = {
+	status: () => call('social_status'),
+	setLastfmKeys: (key, secret) => call('lastfm_set_keys', { key, secret }),
+	beginAuth: () => call('lastfm_begin_auth'),
+	finishAuth: () => call('lastfm_finish_auth'),
+	disconnect: () => call('lastfm_disconnect'),
+	setLastfmEnabled: (on) => call('lastfm_set_enabled', { on }),
+	profile: () => call('lastfm_profile'),
+	setDiscordClientId: (id) => call('discord_set_client_id', { id }),
+	setDiscordEnabled: (on) => call('discord_set_enabled', { on })
+};
+
 const tauri: Api = {
+	social: tauriSocial,
 	player: tauriPlayer,
 	device: () => call<DeviceStatus>('device_status'),
 	collection: async () => tauriArt(await call<Album[]>('collection')),
@@ -265,7 +395,27 @@ const tauri: Api = {
 // plain browser during development.
 const post = async (path: string): Promise<PlayerState> => (await fetch(`/api/player/${path}`, { method: 'POST' })).json();
 
+/** POSTs to the dev API; throws the server's error message on failure. */
+async function devPost<T>(path: string): Promise<T> {
+	const r = await fetch(`/api/${path}`, { method: 'POST' });
+	const body = await r.json();
+	if (!r.ok) throw new Error(body?.error ?? `HTTP ${r.status}`);
+	return body;
+}
+const enc = encodeURIComponent;
+
 const devApi: Api = {
+	social: {
+		status: () => devPost('social/status'),
+		setLastfmKeys: (key, secret) => devPost(`social/lastfm/keys?key=${enc(key)}&secret=${enc(secret)}`),
+		beginAuth: async () => (await devPost<{ url: string }>('social/lastfm/begin')).url,
+		finishAuth: () => devPost('social/lastfm/finish'),
+		disconnect: () => devPost('social/lastfm/disconnect'),
+		setLastfmEnabled: (on) => devPost(`social/lastfm/enabled?on=${on}`),
+		profile: () => devPost('social/lastfm/profile'),
+		setDiscordClientId: (id) => devPost(`social/discord/client?id=${enc(id)}`),
+		setDiscordEnabled: (on) => devPost(`social/discord/enabled?on=${on}`)
+	},
 	player: {
 		state: async () => (await fetch('/api/player/state')).json(),
 		play: (ids, start) => post(`play?ids=${ids.join(',')}&start=${start}`),

@@ -3,7 +3,7 @@
 
 mod media;
 
-use squirt_service::{AlbumDto, DeviceStatus, PlayerStateDto, Service};
+use squirt_service::{AlbumDto, DeviceStatus, LastFmProfile, PlayerStateDto, Service, SocialStatus};
 use std::sync::Arc;
 use tauri::http::Response;
 use tauri::{Manager, State};
@@ -63,11 +63,58 @@ fn player_volume(svc: Svc, v: f32) -> Result<PlayerStateDto, String> {
     svc.volume(v)
 }
 
+#[tauri::command(async)]
+fn social_status(svc: Svc) -> SocialStatus {
+    svc.social_status()
+}
+
+#[tauri::command(async)]
+fn lastfm_set_keys(svc: Svc, key: String, secret: String) -> Result<SocialStatus, String> {
+    svc.lastfm_set_keys(&key, &secret)
+}
+
+#[tauri::command(async)]
+fn lastfm_begin_auth(svc: Svc) -> Result<String, String> {
+    svc.lastfm_begin_auth()
+}
+
+#[tauri::command(async)]
+fn lastfm_finish_auth(svc: Svc) -> Result<SocialStatus, String> {
+    svc.lastfm_finish_auth()
+}
+
+#[tauri::command(async)]
+fn lastfm_disconnect(svc: Svc) -> Result<SocialStatus, String> {
+    svc.lastfm_disconnect()
+}
+
+#[tauri::command(async)]
+fn lastfm_set_enabled(svc: Svc, on: bool) -> Result<SocialStatus, String> {
+    svc.lastfm_set_enabled(on)
+}
+
+#[tauri::command(async)]
+fn lastfm_profile(svc: Svc) -> Result<LastFmProfile, String> {
+    svc.lastfm_profile()
+}
+
+#[tauri::command(async)]
+fn discord_set_client_id(svc: Svc, id: String) -> Result<SocialStatus, String> {
+    svc.discord_set_client_id(&id)
+}
+
+#[tauri::command(async)]
+fn discord_set_enabled(svc: Svc, on: bool) -> Result<SocialStatus, String> {
+    svc.discord_set_enabled(on)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let svc = Arc::new(Service::open().expect("could not open the Squirt library"));
+    svc.start_background();
     let art_svc = svc.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(svc)
         .setup(|app| {
             let svc = app.state::<Arc<Service>>().inner().clone();
@@ -99,7 +146,16 @@ pub fn run() {
             player_next,
             player_prev,
             player_seek,
-            player_volume
+            player_volume,
+            social_status,
+            lastfm_set_keys,
+            lastfm_begin_auth,
+            lastfm_finish_auth,
+            lastfm_disconnect,
+            lastfm_set_enabled,
+            lastfm_profile,
+            discord_set_client_id,
+            discord_set_enabled
         ])
         .run(tauri::generate_context!())
         .expect("error while running Squirt");

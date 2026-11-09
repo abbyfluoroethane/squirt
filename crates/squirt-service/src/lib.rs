@@ -15,6 +15,9 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+mod social;
+pub use social::{LastFmProfile, ScrobbleDto, SocialStatus};
+
 pub type Result<T> = std::result::Result<T, String>;
 
 fn err(e: impl std::fmt::Display) -> String {
@@ -90,6 +93,7 @@ pub struct NowPlaying {
     pub title: String,
     pub artist: String,
     pub album: String,
+    pub album_artist: String,
     pub duration_ms: u64,
     /// Cover art as a JPEG file on disk, if the track has art.
     pub art_path: Option<PathBuf>,
@@ -132,15 +136,18 @@ pub struct Service {
     lib: Mutex<Library>,
     player: Mutex<Option<Playback>>,
     device: Mutex<DeviceSlot>,
+    social: Mutex<social::SocialState>,
 }
 
 impl Service {
     pub fn open() -> Result<Self> {
         let (db, art) = Library::default_dirs().ok_or("no data directory")?;
+        let social_path = db.with_file_name("social.json");
         Ok(Self {
             lib: Mutex::new(Library::open(&db, &art).map_err(err)?),
             player: Mutex::new(None),
             device: Mutex::new(DeviceSlot::default()),
+            social: Mutex::new(social::SocialState::load(social_path)),
         })
     }
 
@@ -407,7 +414,14 @@ impl Service {
         let lib = self.lib.lock().unwrap();
         let t = lib.track(id).ok().flatten()?;
         let art_path = t.art.as_deref().map(|k| lib.art_path(k)).filter(|p| p.exists());
-        Some(NowPlaying { title: t.title, artist: t.artist, album: t.album, duration_ms: t.duration_ms, art_path })
+        Some(NowPlaying {
+            title: t.title,
+            artist: t.artist,
+            album: t.album,
+            album_artist: t.album_artist,
+            duration_ms: t.duration_ms,
+            art_path,
+        })
     }
 
     pub fn stop(&self) -> Result<PlayerStateDto> {

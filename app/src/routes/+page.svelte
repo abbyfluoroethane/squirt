@@ -14,9 +14,10 @@
 	import ZuneHD from '$lib/components/zune/ZuneHD.svelte';
 	import NowPlaying from '$lib/components/zune/NowPlaying.svelte';
 	import SquirtMark from '$lib/components/zune/SquirtMark.svelte';
+	import Social from '$lib/components/zune/Social.svelte';
 	import { tick } from 'svelte';
 
-	const PIVOTS = ['collection', 'device', 'settings'] as const;
+	const PIVOTS = ['collection', 'device', 'social', 'settings'] as const;
 	const SUBPIVOTS = ['music', 'videos', 'pictures', 'podcasts'] as const;
 
 	let pivot = $state<(typeof PIVOTS)[number]>('collection');
@@ -30,7 +31,7 @@
 	let selectedId = $state<string | null>(null);
 
 	let backend = $state<Backend>('mock');
-	let api: Api | null = null;
+	let api = $state.raw<Api | null>(null);
 	let player = $state<PlayerState>({ status: 'stopped', trackId: null, positionMs: 0, durationMs: 0, volume: 0.7, queue: [] });
 
 	onMount(() => {
@@ -44,6 +45,7 @@
 			await reload(c.api);
 			// Deep links for development: #device, #now-playing.
 			if (location.hash === '#device') pivot = 'device';
+			if (location.hash === '#social') pivot = 'social';
 			if (location.hash === '#now-playing') fullscreen = true;
 			// Notice the Zune being plugged in or out; reload what's on it when it changes.
 			timers.push(
@@ -148,13 +150,15 @@
 			{:else if backend === 'dev-api'}<span class="font-normal text-faint">· browser preview, your library</span>{/if}
 		</div>
 		<Pivot items={PIVOTS} bind:value={pivot} />
-		{#if pivot !== 'settings'}
+		{#if pivot === 'collection' || pivot === 'device'}
 			<Pivot items={SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={['videos', 'pictures', 'podcasts']} />
 		{/if}
 	</header>
 
 	<main class="flex min-h-0 flex-1 gap-0 px-6 pt-5 pb-3">
-		{#if pivot === 'settings'}
+		{#if pivot === 'social'}
+			{#if api}<Social social={api.social} />{/if}
+		{:else if pivot === 'settings'}
 			<section class="flex max-w-xl flex-col gap-8">
 				<div class="flex flex-col gap-3">
 					<h2 class="subpivot">theme</h2>
