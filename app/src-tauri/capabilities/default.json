@@ -16,6 +16,15 @@
         },
         {
           "url": "https://last.fm/*"
+        },
+        {
+          "url": "https://ffmpeg.org/*"
+        },
+        {
+          "url": "https://ffmpeg.org"
+        },
+        {
+          "url": "https://www.gnu.org/licenses/*"
         }
       ]
     },

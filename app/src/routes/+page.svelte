@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { connect, isTauri, type PictureAlbum, type VideoItem, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type Track } from '$lib/api';
+	import { connect, isTauri, openExternal, type PictureAlbum, type VideoItem, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type Track } from '$lib/api';
 	import { bytes, duration } from '$lib/format';
 	import { theme, type Theme } from '$lib/theme.svelte';
 	import Pivot from '$lib/components/zune/Pivot.svelte';
@@ -217,6 +217,16 @@
 				<div class="metro-enter flex flex-col gap-2" style="--i: 2">
 					<h2 class="subpivot">mtpz keys</h2>
 					<p class="text-muted-foreground">Read from <code class="font-mono text-foreground">~/.mtpz-data</code>. Squirt does not include keys.</p>
+				</div>
+				<div class="metro-enter flex flex-col gap-2" style="--i: 3">
+					<h2 class="subpivot">about</h2>
+					<p class="text-muted-foreground">squirt 0.1 · MIT license</p>
+					<p class="text-xs leading-relaxed text-muted-foreground">
+						includes <button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://ffmpeg.org')}>FFmpeg</button>,
+						licensed under the <button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html')}>LGPL 2.1</button>
+						(a minimal build; <button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz')}>source</button>).
+						fonts: Selawik and IBM Plex Mono, under the SIL Open Font License.
+					</p>
 				</div>
 			</div>
 			</section>

@@ -9,7 +9,7 @@
 mod media;
 mod meta;
 
-pub use media::{Picture, PictureAlbum, Video, PICTURE_EXTENSIONS, VIDEO_EXTENSIONS};
+pub use media::{find_tool, Picture, PictureAlbum, Video, PICTURE_EXTENSIONS, VIDEO_EXTENSIONS};
 pub use meta::{read_track, Codec, TrackMeta};
 
 use rusqlite::{params, Connection, OptionalExtension};

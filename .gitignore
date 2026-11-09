@@ -5,3 +5,7 @@
 
 # Local build secrets (see crates/squirt-social/src/lib.rs)
 /.cargo/config.toml
+
+# ffmpeg sidecars: built by scripts/build-ffmpeg.sh (locally or in CI), not committed.
+/app/src-tauri/binaries/
+/target/ffmpeg-build/

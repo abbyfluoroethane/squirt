@@ -47,10 +47,16 @@ pub struct PictureAlbum {
     pub cover: Option<String>,
 }
 
-/// Finds a command-line tool. Apps started from the Dock on macOS don't get
-/// Homebrew's PATH, so the usual install locations are checked too.
+/// Finds ffmpeg/ffprobe. Releases bundle Squirt's own minimal LGPL build as
+/// a sidecar next to the app's executable, so that comes first; then PATH,
+/// then the usual install locations (apps started from the Dock on macOS
+/// don't get Homebrew's PATH).
 pub fn find_tool(name: &str) -> Option<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+        dirs.push(dir);
+    }
+    dirs.extend(std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).unwrap_or_default());
     dirs.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"].map(PathBuf::from));
     let exe = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
     dirs.into_iter().map(|d| d.join(&exe)).find(|p| p.is_file())
