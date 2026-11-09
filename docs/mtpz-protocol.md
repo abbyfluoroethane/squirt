@@ -107,7 +107,7 @@ Notes:
   is optional).
 - Upper-case and lower-case hex must both be accepted.
 - Recommended consistency check (optional): the modulus inside the leaf
-  certificate in line 5 (see 3.1) must be the same as line 3.
+  certificate in line 5 (see 3.1), byte-reversed, must be the same as line 3.
 
 ### 3.1 Certificate chain layout (information only)
 
@@ -135,11 +135,13 @@ not understood):
 | 33 | m | ASCII name (for example "Zune Device CA 1" or "Zune Device"; the host leaf has a "Zune Software Leaf ..." name) |
 | 33+m | 4 | BE32 RSA public exponent |
 | 37+m | 2 | BE16 modulus length (`0x0080`) |
-| 39+m | 128 | RSA modulus, big-endian |
+| 39+m | 128 | RSA modulus, **little-endian** (byte-reversed from key file line 3) |
 | ... | rest of `L` | Unknown. This is possibly the issuer signature. |
 
 In the known 629-byte host chain, the second record is the host's leaf
-certificate. Its modulus is the modulus in line 3.
+certificate ("Zune Software Leaf 1"). Its modulus is the modulus in line 3,
+stored little-endian. (Implementer note, 2026-11-08: confirmed against the
+community key file. The earlier text said big-endian.)
 
 ---
 
