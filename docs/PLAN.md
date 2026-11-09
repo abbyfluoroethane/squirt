@@ -22,10 +22,11 @@
    - [x] PTP container codec.
    - [x] Key file loader.
    - [x] Bulk transport: claim the interface, then send command, data and
-     response containers. Not yet tested on a device.
-   - [x] GetDeviceInfo and OpenSession (`squirt info`). Not yet tested on a device.
+     response containers. Handles the Zune HD quirks: unconfigured device,
+     split data headers, and stale replies left by an aborted run.
+   - [x] GetDeviceInfo and OpenSession (`squirt info`).
    - [x] MTPZ handshake, written clean-room from `docs/mtpz-protocol.md`
-     (`squirt auth`). Passes the spec vectors and a simulated device; not yet tested on hardware.
+     (`squirt auth`). **Works on a Zune HD, firmware 4.5.114.**
    - [ ] GetStorageIDs and GetStorageInfo.
    - [ ] Push one MP3 with metadata.
    - [ ] Create an album object with cover art.

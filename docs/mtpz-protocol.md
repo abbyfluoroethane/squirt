@@ -461,6 +461,25 @@ chain. In the simulated device:
 
 ---
 
+## 11a. Hardware results (implementer notes, 2026-11-08)
+
+Tested with Squirt against a Zune HD (`045e:063e`, firmware
+04.05.00114.00). The full handshake succeeded.
+
+- **Uncertainty 1 (OAEP):** the device's OAEP block has the standard
+  empty-label layout. Strict checking would have passed.
+- **Uncertainty 4 (Session Initiator Info):** `0xD406` is a settable string
+  property. The device accepted `"Squirt/MTPZClassDriver"`, so it does not
+  need any particular content.
+- **Uncertainty 6 (ordering):** OpenSession, then GetStorageIDs, then the
+  handshake works. Earlier placement has not been tested.
+- **Transport quirk (not MTPZ-specific):** the Zune HD answers `0x2002`
+  (General Error) to every host-to-device data phase unless the 12-byte
+  data container header is sent as its own short USB transfer, before the
+  payload. It also sends its own data containers split this way. The
+  device can be left unconfigured on macOS, so the host must select
+  configuration 1 itself.
+
 ## 12. Sources
 
 - libmtp (LGPL-2.1+), https://github.com/libmtp/libmtp, `master` branch, read November 2026:

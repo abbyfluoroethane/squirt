@@ -20,6 +20,8 @@ pub enum TransportError {
     Usb(#[from] nusb::Error),
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    #[error("device has no usable USB configuration")]
+    NoConfiguration,
     #[error("no interface with bulk IN and OUT endpoints")]
     NoBulkInterface,
     #[error("bad container: {0}")]
@@ -54,8 +56,18 @@ impl Transport {
     /// we match on endpoints, not on class.
     pub fn open(info: &nusb::DeviceInfo) -> Result<Self, TransportError> {
         let dev = info.open().wait()?;
+        // macOS (and Linux without a driver) can leave the device unconfigured.
+        // If so, select the first configuration ourselves.
+        if dev.active_configuration().is_err() {
+            let value = dev
+                .configurations()
+                .next()
+                .map(|c| c.configuration_value())
+                .ok_or(TransportError::NoConfiguration)?;
+            dev.set_configuration(value).wait()?;
+        }
         let (iface_num, ep_in, ep_out) = {
-            let cfg = dev.active_configuration().map_err(|_| TransportError::NoBulkInterface)?;
+            let cfg = dev.active_configuration().map_err(|_| TransportError::NoConfiguration)?;
             cfg.interfaces()
                 .find_map(|ifc| {
                     let alt = ifc.alt_settings().next()?;
@@ -79,10 +91,33 @@ impl Transport {
             .endpoint::<Bulk, Out>(ep_out)?
             .writer(TRANSFER_SIZE)
             .with_write_timeout(TIMEOUT);
-        let inp = iface
+        let mut inp = iface
             .endpoint::<Bulk, In>(ep_in)?
             .reader(TRANSFER_SIZE)
-            .with_read_timeout(TIMEOUT);
+            .with_read_timeout(Duration::from_millis(300));
+        // A previous run may have stopped mid-transaction, leaving the device
+        // waiting for us to read its reply. It will not accept new commands
+        // until that is read, so drain it.
+        let mut drained = 0usize;
+        let mut scratch = Vec::new();
+        loop {
+            scratch.clear();
+            let mut rd = inp.until_short_packet();
+            match rd.read_to_end(&mut scratch) {
+                Ok(_) => {
+                    let _ = rd.consume_end();
+                    drained += scratch.len();
+                    if drained > 64 * 1024 * 1024 {
+                        break;
+                    }
+                }
+                Err(_) => break, // Timed out: nothing left.
+            }
+        }
+        if drained > 0 && std::env::var_os("SQUIRT_TRACE").is_some() {
+            eprintln!("drained {drained} stale bytes from device");
+        }
+        inp.set_read_timeout(TIMEOUT);
         Ok(Self { _iface: iface, out, inp, next_tid: 0 })
     }
 
@@ -92,11 +127,30 @@ impl Transport {
         Ok(())
     }
 
+    /// Reads one short-packet-terminated USB transfer.
+    fn read_transfer(&mut self, buf: &mut Vec<u8>) -> Result<(), TransportError> {
+        let mut rd = self.inp.until_short_packet();
+        rd.read_to_end(buf)?;
+        rd.consume_end().map_err(|_| std::io::Error::other("missing short packet"))?;
+        Ok(())
+    }
+
+    /// Reads one container. Some devices (the Zune HD among them) send the
+    /// 12-byte header as its own short transfer, before the payload. So keep
+    /// reading until the declared length is reached.
     fn recv(&mut self) -> Result<Container, TransportError> {
         let mut buf = Vec::new();
-        let mut rd = self.inp.until_short_packet();
-        rd.read_to_end(&mut buf)?;
-        rd.consume_end().map_err(|_| std::io::Error::other("missing short packet"))?;
+        self.read_transfer(&mut buf)?;
+        if buf.len() >= 4 {
+            let declared = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+            while buf.len() < declared {
+                let before = buf.len();
+                self.read_transfer(&mut buf)?;
+                if buf.len() == before {
+                    break; // A zero-length transfer with nothing more to read.
+                }
+            }
+        }
         Ok(Container::decode(&buf)?)
     }
 
@@ -111,15 +165,27 @@ impl Transport {
     ) -> Result<Reply, TransportError> {
         let tid = self.next_tid;
         self.next_tid = self.next_tid.wrapping_add(1);
+        let trace = std::env::var_os("SQUIRT_TRACE").is_some();
+        if trace {
+            eprintln!("-> op {code:#06x} tid {tid} params {params:x?} data_out {:?}", data_out.map(<[u8]>::len));
+        }
 
         self.send(&Container::command(code, tid, params)?)?;
         if let Some(data) = data_out {
-            self.send(&Container {
+            let bytes = Container {
                 kind: ContainerType::Data,
                 code,
                 transaction_id: tid,
                 payload: data.to_vec(),
-            })?;
+            }
+            .encode();
+            // The Zune HD rejects (0x2002) a data container sent as one
+            // transfer. It wants the 12-byte header as its own short transfer,
+            // then the payload, mirroring how it sends data to us.
+            self.out.write_all(&bytes[..crate::container::HEADER_LEN])?;
+            self.out.flush_end()?;
+            self.out.write_all(&bytes[crate::container::HEADER_LEN..])?;
+            self.out.flush_end()?;
         }
 
         let mut data_in = None;
@@ -127,6 +193,9 @@ impl Transport {
         if c.kind == ContainerType::Data {
             data_in = Some(std::mem::take(&mut c.payload));
             c = self.recv()?;
+        }
+        if trace {
+            eprintln!("<- {:?} code {:#06x} tid {} data_in {:?}", c.kind, c.code, c.transaction_id, data_in.as_ref().map(Vec::len));
         }
         if c.kind != ContainerType::Response {
             return Err(TransportError::Unexpected {

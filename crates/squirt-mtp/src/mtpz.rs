@@ -316,11 +316,17 @@ pub fn advertises_mtpz(vendor_extension_desc: &str) -> bool {
 
 /// Runs the full handshake (spec section 4) on an open session.
 pub fn authenticate(t: &mut Transport, keys: &MtpzKeys) -> Result<Message2, MtpzError> {
-    t.transact(
+    // Spec uncertainty 4: whether the device needs or checks this property.
+    // Treat a refusal as non-fatal.
+    if let Err(e) = t.transact(
         op::SET_DEVICE_PROP_VALUE,
         &[SESSION_INITIATOR_INFO],
         Some(&dataset::encode_string(INITIATOR_STRING)),
-    )?;
+    ) {
+        if std::env::var_os("SQUIRT_TRACE").is_some() {
+            eprintln!("note: Session Initiator Info refused ({e}); continuing");
+        }
+    }
     t.transact(op::END_TRUSTED_APP_SESSION, &[], None)?;
 
     let mut host_random = [0u8; 16];
