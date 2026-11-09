@@ -8,7 +8,8 @@
 	import DeviceBar from '$lib/components/zune/DeviceBar.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import { DeviceMobileSpeaker, Check } from 'phosphor-svelte';
+	import { Check } from 'phosphor-svelte';
+	import ZuneHD from '$lib/components/zune/ZuneHD.svelte';
 
 	const PIVOTS = ['collection', 'device', 'settings'] as const;
 	const SUBPIVOTS = ['music', 'videos', 'pictures', 'podcasts'] as const;
@@ -91,7 +92,7 @@
 								<span class="truncate text-xs text-muted-foreground">{al.artist}{al.year ? ` · ${al.year}` : ''}</span>
 							</span>
 							{#if al.tracks.every((t) => t.onDevice)}
-								<DeviceMobileSpeaker class="ml-auto shrink-0 text-muted-foreground" size={15} weight="light" />
+								<ZuneHD class="ml-auto shrink-0 text-muted-foreground" size={16} />
 							{/if}
 						</button>
 					{/each}
@@ -130,7 +131,7 @@
 								<span class="tabular text-xs text-muted-foreground">{t.n}</span>
 								<span class="truncate">{t.title}</span>
 								<span class="tabular text-right text-xs text-muted-foreground">{duration(t.durationMs)}</span>
-								{#if t.onDevice}<DeviceMobileSpeaker size={13} weight="light" class="text-muted-foreground" />{:else}<span></span>{/if}
+								{#if t.onDevice}<ZuneHD size={14} class="text-muted-foreground" />{:else}<span></span>{/if}
 							</div>
 						{/each}
 					</ScrollArea>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { DeviceStatus } from '$lib/api';
 	import { bytes } from '$lib/format';
-	import { DeviceMobileSpeaker } from 'phosphor-svelte';
+	import ZuneHD from './ZuneHD.svelte';
 
 	let { device }: { device: DeviceStatus | null } = $props();
 
@@ -18,7 +18,7 @@
 </script>
 
 <footer class="flex h-20 shrink-0 items-center gap-5 border-t px-6">
-	<DeviceMobileSpeaker size={36} weight="thin" class={device?.connected ? 'text-foreground' : 'text-faint'} />
+	<ZuneHD size={52} weight={1.25} lit={device?.connected} class={device?.connected ? 'text-foreground' : 'text-faint'} />
 	{#if device?.connected}
 		<div class="flex min-w-0 flex-col gap-1">
 			<span class="truncate text-[1.05rem] font-[350] lowercase">{device.name}</span>
