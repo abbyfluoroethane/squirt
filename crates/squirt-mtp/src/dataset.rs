@@ -30,6 +30,9 @@ impl<'a> Reader<'a> {
     pub fn u32(&mut self) -> Result<u32, Truncated> {
         Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
+    pub fn u64(&mut self) -> Result<u64, Truncated> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+    }
     /// A u32 count followed by that many u16 values.
     pub fn u16_array(&mut self) -> Result<Vec<u16>, Truncated> {
         let n = self.u32()? as usize;

@@ -27,8 +27,9 @@
    - [x] GetDeviceInfo and OpenSession (`squirt info`).
    - [x] MTPZ handshake, written clean-room from `docs/mtpz-protocol.md`
      (`squirt auth`). **Works on a Zune HD, firmware 4.5.114.**
-   - [ ] GetStorageIDs and GetStorageInfo.
-   - [ ] Push one MP3 with metadata.
+   - [x] GetStorageIDs and GetStorageInfo (`squirt ls`).
+   - [x] Push one MP3 with metadata (`squirt push`), into
+     `Music/<Album Artist>/<Album>/NN Title.mp3`, matching the Zune software layout.
    - [ ] Create an album object with cover art.
 2. **Library sync:** list, delete and dedupe on-device content; playlists.
 3. **Video:** ffmpeg presets. Zune HD: H.264 Baseline at 480x272 (720p for
