@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, isTauri, type Album, type DeviceStatus } from '$lib/api';
+	import { connect, type Album, type Api, type Backend, type DeviceStatus } from '$lib/api';
 	import { bytes, duration } from '$lib/format';
 	import { theme, type Theme } from '$lib/theme.svelte';
 	import Pivot from '$lib/components/zune/Pivot.svelte';
@@ -22,8 +22,18 @@
 	let artist = $state<string | null>(null);
 	let selectedId = $state<string | null>(null);
 
-	onMount(async () => {
-		[device, albums] = await Promise.all([api.device(), api.collection()]);
+	let backend = $state<Backend>('mock');
+
+	onMount(() => {
+		let api: Api;
+		let timer: ReturnType<typeof setInterval>;
+		(async () => {
+			({ api, backend } = await connect());
+			[device, albums] = await Promise.all([api.device(), api.collection()]);
+			// Notice the Zune being plugged in or out.
+			timer = setInterval(async () => (device = await api.device()), 5000);
+		})();
+		return () => clearInterval(timer);
 	});
 
 	// "device" shows only what is on the Zune; "collection" shows everything.
@@ -43,7 +53,8 @@
 	<header class="flex shrink-0 flex-col gap-3 px-6 pt-5">
 		<div class="flex items-center gap-3 text-xs font-semibold tracking-wide text-muted-foreground lowercase">
 			<span class="zune-gradient inline-block size-2.5"></span>squirt
-			{#if !isTauri}<span class="font-normal text-faint">· browser preview, mock data</span>{/if}
+			{#if backend === 'mock'}<span class="font-normal text-faint">· browser preview, mock data (run <code class="font-mono">squirt serve</code> for your library)</span>
+			{:else if backend === 'dev-api'}<span class="font-normal text-faint">· browser preview, your library</span>{/if}
 		</div>
 		<Pivot items={PIVOTS} bind:value={pivot} />
 		{#if pivot !== 'settings'}
@@ -86,7 +97,7 @@
 					{#each shownAlbums as al (al.id)}
 						<button class="flex w-full items-center gap-3 p-1.5 text-left transition-colors {selected?.id === al.id ? 'bg-selection' : 'hover:bg-accent'}"
 							onclick={() => (selectedId = al.id)}>
-							<AlbumArt hue={al.hue} size={52} />
+							<AlbumArt hue={al.hue} size={52} src={al.art ?? undefined} />
 							<span class="flex min-w-0 flex-col">
 								<span class="truncate text-[0.95rem]">{al.title}</span>
 								<span class="truncate text-xs text-muted-foreground">{al.artist}{al.year ? ` · ${al.year}` : ''}</span>
@@ -103,7 +114,7 @@
 			<section class="flex w-[44%] shrink-0 flex-col border-l pl-4">
 				{#if selected}
 					<div class="mb-4 flex items-end gap-4">
-						<AlbumArt hue={selected.hue} size={96} />
+						<AlbumArt hue={selected.hue} size={96} src={selected.art ?? undefined} />
 						<div class="flex min-w-0 flex-1 flex-col gap-0.5">
 							<span class="truncate text-[1.35rem] leading-tight font-light">{selected.title}</span>
 							<span class="truncate text-muted-foreground">{selected.artist}</span>

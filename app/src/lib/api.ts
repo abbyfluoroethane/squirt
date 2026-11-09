@@ -20,6 +20,8 @@ export interface DeviceStatus {
 }
 
 export interface Track {
+	id?: number;
+	codec?: string;
 	disc: number;
 	n: number;
 	title: string;
@@ -35,8 +37,10 @@ export interface Album {
 	artist: string;
 	year?: number;
 	genre?: string;
-	/** Hue used for the placeholder art until real art is loaded. */
+	/** Hue used for placeholder art when there is no cover. */
 	hue: number;
+	/** URL of the cover art thumbnail. */
+	art?: string | null;
 	tracks: Track[];
 }
 
@@ -55,6 +59,9 @@ export interface Api {
 }
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+/** Which backend the UI is talking to. */
+export type Backend = 'tauri' | 'dev-api' | 'mock';
 
 // ------------------------------------------------------------------- mock
 
@@ -129,4 +136,31 @@ const tauri: Api = {
 	}
 };
 
-export const api: Api = isTauri ? tauri : mock;
+// ---------------------------------------------------------------- dev api
+
+// `squirt serve` (proxied by Vite at /api) exposes the real library to a
+// plain browser during development.
+const devApi: Api = {
+	async device() {
+		return (await fetch('/api/device')).json();
+	},
+	async collection() {
+		return (await fetch('/api/collection')).json();
+	}
+};
+
+async function devApiRunning(): Promise<boolean> {
+	try {
+		const r = await fetch('/api/health', { signal: AbortSignal.timeout(800) });
+		return r.ok;
+	} catch {
+		return false;
+	}
+}
+
+/** Picks the backend: Tauri in the app, else the dev API if running, else mock data. */
+export async function connect(): Promise<{ api: Api; backend: Backend }> {
+	if (isTauri) return { api: tauri, backend: 'tauri' };
+	if (await devApiRunning()) return { api: devApi, backend: 'dev-api' };
+	return { api: mock, backend: 'mock' };
+}

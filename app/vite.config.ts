@@ -4,6 +4,10 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+	server: {
+		// `squirt serve` provides the real library to the browser preview.
+		proxy: { '/api': 'http://127.0.0.1:5190' }
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

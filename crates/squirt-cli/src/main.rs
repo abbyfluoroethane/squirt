@@ -1,3 +1,5 @@
+mod serve;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use squirt_mtp::{container::op, dataset::DeviceInfo, device::{self, format, prop, Zune}, library::{PushOutcome, Track}, devices, mtpz::{self, MtpzKeys}, transport::Transport};
@@ -86,6 +88,11 @@ enum Cmd {
     Library {
         #[command(subcommand)]
         cmd: LibCmd,
+    },
+    /// Serve a local JSON API for developing the UI in a browser.
+    Serve {
+        #[arg(long, default_value_t = 5190)]
+        port: u16,
     },
     /// Delete an object by handle.
     Rm {
@@ -346,6 +353,7 @@ fn main() -> Result<()> {
             println!("{ok} ok, {missing} missing, {bad} wrong size");
         }
         Cmd::Library { cmd } => library(cmd)?,
+        Cmd::Serve { port } => serve::serve(port)?,
         Cmd::Rm { handle, keys } => {
             let keys = load_keys(keys)?;
             let mut z = Zune::connect(Some(&keys))?;
