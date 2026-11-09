@@ -84,6 +84,11 @@ impl LastFm {
         Self { api_key: api_key.into(), api_secret: api_secret.into() }
     }
 
+    /// Calls a Last.fm method. Temporary failures (HTTP 5xx, or Last.fm errors
+    /// 8 "operation failed", 11/16 "service unavailable", 29 "rate limit") are
+    /// retried twice with a short pause; Last.fm returns these often and they
+    /// usually clear within seconds. Errors name the method and carry
+    /// Last.fm's own message.
     fn call(&self, method: &str, extra: &[(&str, &str)], signed: bool, post: bool) -> Result<Value> {
         let mut params: BTreeMap<&str, String> = BTreeMap::new();
         params.insert("method", method.into());
@@ -97,26 +102,49 @@ impl LastFm {
         }
         params.insert("format", "json".into());
 
+        let mut last_err = String::new();
+        for attempt in 0..3 {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(800 * attempt));
+            }
+            match self.send(&params, post) {
+                Ok(v) => return Ok(v),
+                Err((e, temporary)) => {
+                    last_err = format!("{method}: {e}");
+                    if !temporary {
+                        break;
+                    }
+                }
+            }
+        }
+        Err(last_err)
+    }
+
+    /// One request. On failure, returns the message and whether it is worth retrying.
+    fn send(&self, params: &BTreeMap<&str, String>, post: bool) -> std::result::Result<Value, (String, bool)> {
+        // Read error responses too: Last.fm puts the real reason in the JSON body.
+        let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(false).build().into();
         let resp = if post {
-            ureq::post(API).header("User-Agent", USER_AGENT).send_form(params.iter().map(|(k, v)| (*k, v.as_str())))
+            agent.post(API).header("User-Agent", USER_AGENT).send_form(params.iter().map(|(k, v)| (*k, v.as_str())))
         } else {
-            let mut req = ureq::get(API).header("User-Agent", USER_AGENT);
-            for (k, v) in &params {
+            let mut req = agent.get(API).header("User-Agent", USER_AGENT);
+            for (k, v) in params {
                 req = req.query(*k, v);
             }
             req.call()
         };
-        // Last.fm returns errors as JSON, sometimes with a non-200 status.
-        let body: Value = match resp {
-            Ok(mut r) => r.body_mut().read_json().map_err(|e| e.to_string())?,
-            Err(ureq::Error::StatusCode(code)) => return Err(format!("last.fm returned HTTP {code}")),
-            Err(e) => return Err(format!("could not reach last.fm: {e}")),
-        };
-        if let Some(code) = body.get("error") {
-            let msg = body.get("message").and_then(Value::as_str).unwrap_or("unknown error");
-            return Err(format!("last.fm error {code}: {msg}"));
+        let mut resp = resp.map_err(|e| (format!("could not reach last.fm: {e}"), true))?;
+        let status = resp.status().as_u16();
+        let body: Option<Value> = resp.body_mut().read_json().ok();
+        if let Some(code) = body.as_ref().and_then(|b| b.get("error")).and_then(Value::as_u64) {
+            let msg = body.as_ref().and_then(|b| b.get("message")).and_then(Value::as_str).unwrap_or("unknown error");
+            let temporary = matches!(code, 8 | 11 | 16 | 29);
+            return Err((format!("last.fm error {code}: {msg}"), temporary));
         }
-        Ok(body)
+        match body {
+            Some(v) if status < 400 => Ok(v),
+            _ => Err((format!("last.fm returned HTTP {status}"), status >= 500)),
+        }
     }
 
     // ---------------------------------------------------------------- auth
