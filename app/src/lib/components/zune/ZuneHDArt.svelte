@@ -25,8 +25,8 @@
 
 	// Geometry, in mm.
 	const EDGE = 0.9; // metal hairline at the sides and top
-	const R_BODY = 3.6;
-	const R_GLASS = 2.6;
+	const R_BODY = 2.4;
+	const R_GLASS = 1.6;
 	const GLASS_BOTTOM = 85.8;
 	const N = { top: 9.8, bottom: 7.4, depth: 2.9, r: 0.9 }; // notch half-widths
 	const SCREEN = { x: 6, y: 6.3, w: 41, h: 72.9 };
@@ -50,6 +50,22 @@
 		`L${cx - N.top} ${GLASS_BOTTOM}`,
 		'Z'
 	].join(' ');
+
+	// Home button: a glossy black key filling the notch, inset slightly from
+	// its edges, with the same angled sides.
+	// The key fills 90% of the notch height, centred in it.
+	const B = { inset: 0.75, top: GLASS_BOTTOM + N.depth * 0.05, bottom: nb - N.depth * 0.05 };
+	const slope = (N.top - N.bottom) / N.depth; // half-width lost per mm down
+	const halfAt = (y: number) => N.top - slope * (y - GLASS_BOTTOM) - B.inset;
+	const buttonPath = [
+		`M${cx - halfAt(GLASS_BOTTOM)} ${B.top}`,
+		`H${cx + halfAt(GLASS_BOTTOM)}`,
+		`L${cx + halfAt(B.bottom)} ${B.bottom - 0.4}`,
+		`Q${cx + halfAt(B.bottom) - 0.15} ${B.bottom} ${cx + halfAt(B.bottom) - 0.6} ${B.bottom}`,
+		`H${cx - halfAt(B.bottom) + 0.6}`,
+		`Q${cx - halfAt(B.bottom) + 0.15} ${B.bottom} ${cx - halfAt(B.bottom)} ${B.bottom - 0.4}`,
+		'Z'
+	].join(' ');
 </script>
 
 <svg width={height * (53 / 102)} height={height} viewBox="0 0 53 102" aria-hidden="true" class="drop-shadow-2xl">
@@ -65,6 +81,11 @@
 		</linearGradient>
 		<!-- The diagonal reflection across the glass in the product shots:
 		     lighter top-left, near black bottom-right. -->
+		<linearGradient id="{uid}-button" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#2b2d31" />
+			<stop offset="0.45" stop-color="#121315" />
+			<stop offset="1" stop-color="#050506" />
+		</linearGradient>
 		<linearGradient id="{uid}-glass" x1="0" y1="0" x2="1" y2="1">
 			<stop offset="0" stop-color="#3a3d42" />
 			<stop offset="0.48" stop-color="#26282c" />
@@ -89,6 +110,12 @@
 			<text x={SCREEN.x + 2.7} y={SCREEN.y + SCREEN.h - 2.6} font-size="3" font-weight="350" opacity="0.92">{date}</text>
 		</g>
 	{/if}
+
+	<!-- Home button in the notch: glossy key, highlight along its top edge,
+	     and the small dot at its centre. -->
+	<path d={buttonPath} fill="url(#{uid}-button)" stroke="#000" stroke-opacity="0.6" stroke-width="0.2" />
+	<line x1={cx - halfAt(GLASS_BOTTOM) + 0.5} y1={B.top + 0.25} x2={cx + halfAt(GLASS_BOTTOM) - 0.5} y2={B.top + 0.25} stroke="#fff" stroke-opacity="0.22" stroke-width="0.25" />
+	<circle cx={cx} cy={B.top + 0.8} r="0.2" fill="#fff" fill-opacity="0.35" />
 
 	<!-- Outer edge. -->
 	<rect x="0.1" y="0.1" width="52.8" height="101.8" rx={R_BODY - 0.1} fill="none" stroke="#000" stroke-opacity="0.4" stroke-width="0.25" />
