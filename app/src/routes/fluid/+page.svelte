@@ -4,6 +4,7 @@
 	// coral, orange); soft shading where layers overlap; no gloss. Shading
 	// drops away below ~28px, as the Office icons simplify when small.
 	const variants = [
+		{ id: 'fold3', name: 'fold 3', note: 'three folded layers: pink, rose, amber' },
 		{ id: 'fold', name: 'fold', note: 'drop folded on an s-curve: pink front over coral back' },
 		{ id: 'layers', name: 'layers', note: 'three stacked, offset drops: a splash' },
 		{ id: 'wrap', name: 'wrap', note: 'a magenta band curling round an orange core' },
@@ -57,7 +58,16 @@
 			{/if}
 		{/snippet}
 
-		{#if id === 'fold'}
+		{#if id === 'fold3'}
+			{@const FRONT = 'M50 6 C50 6 18 44 18 64 A32 32 0 0 0 66.3 91.6 C52 80 46 62 55 42 C60 31 57 18 50 6 Z'}
+			{@const MID = 'M50 6 C50 6 18 44 18 64 A32 32 0 0 0 76.6 81.9 C66 72 62 58 66 44 C68 32 60 18 50 6 Z'}
+			<clipPath id="{k}-mid"><path d={MID} /></clipPath>
+			<path d={DROP} fill="url(#{k}-orange)" />
+			{@render shade(MID, '', 4, 2, `${k}-drop`)}
+			<path d={MID} fill="url(#{k}-rose)" />
+			{@render shade(FRONT, '', 4, 2, `${k}-mid`)}
+			<path d={FRONT} fill="url(#{k}-pink)" />
+		{:else if id === 'fold'}
 			{@const FRONT = 'M50 6 C50 6 18 44 18 64 A32 32 0 0 0 66.3 91.6 C52 80 46 62 55 42 C60 31 57 18 50 6 Z'}
 			<path d={DROP} fill="url(#{k}-orange)" />
 			{@render shade(FRONT, '', 4, 2, `${k}-drop`)}
@@ -100,7 +110,7 @@
 		the droplet after the 2025 microsoft 365 icons: folded, overlapping layers, vivid analogous gradients, soft shading where layers meet, no gloss.
 	</p>
 
-	<div class="grid grid-cols-[6rem_repeat(5,1fr)] items-end gap-x-6 gap-y-4">
+	<div class="grid grid-cols-[6rem_repeat(6,1fr)] items-end gap-x-6 gap-y-4">
 		<span></span>
 		{#each variants as v (v.id)}<span class="subpivot text-center">{v.name}</span>{/each}
 		<span></span>
