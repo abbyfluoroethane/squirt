@@ -1,0 +1,43 @@
+/* s5: end card, 24.0-30.0 s. Hard cut in, still frame out. */
+.s5 { animation: s5-vis 30s linear both; background: var(--bg); }
+@keyframes s5-vis {
+  0%, 79.9%  { opacity: 0; }
+  80%, 100%  { opacity: 1; }
+}
+
+/* Droplet: 220 px tall (aspect 68:94), centered at x 960, y 330. */
+.s5 .s5-mark { position: absolute; left: 880.5px; top: 220px; width: 159.1px; height: 220px; overflow: visible; }
+.s5 .s5-layer { opacity: 0; animation: s5-layer-in 0.7s var(--ease-metro) both; }
+.s5 .s5-pink  { animation-delay: 24s; }
+.s5 .s5-rose  { animation-delay: 24.06s; }
+.s5 .s5-amber { animation-delay: 24.12s; }
+@keyframes s5-layer-in {
+  from { opacity: 0; transform: translateX(-80px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Centered text lines. top = centre y - height / 2. */
+.s5 .s5-text {
+  position: absolute; left: 0; width: 1920px; text-align: center; white-space: nowrap;
+  font-family: var(--sans); font-weight: 300; color: var(--fg);
+  opacity: 0; animation: s5-in 0.7s var(--ease-metro) both;
+}
+@keyframes s5-in {
+  from { opacity: 0; transform: translateX(80px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.s5 .s5-word      { top: 490px; height: 140px; line-height: 140px; font-size: 140px; animation-delay: 24.5s; }
+.s5 .s5-tagline   { top: 662px; height: 56px;  line-height: 56px;  font-size: 56px;  animation-delay: 25.3s; }
+.s5 .s5-platforms { top: 823px; height: 34px;  line-height: 34px;  font-size: 28px;  font-weight: 400; color: #cfcfcf; animation-delay: 26.6s; }
+.s5 .s5-url       { top: 905px; height: 30px;  line-height: 30px;  font-size: 24px;  font-family: var(--mono); font-weight: 400; color: #a8a8a8; animation-delay: 27.4s; }
+
+/* Gradient rule: 480 x 3 px, centered at y 770, draws left to right in 0.8 s. */
+.s5 .s5-rule {
+  position: absolute; left: 720px; top: 768.5px; width: 480px; height: 3px;
+  background: var(--gradient); transform-origin: left center;
+  opacity: 0; animation: s5-rule-draw 0.8s var(--ease-metro) 26.2s both;
+}
+@keyframes s5-rule-draw {
+  from { opacity: 1; transform: scaleX(0); }
+  to   { opacity: 1; transform: scaleX(1); }
+}

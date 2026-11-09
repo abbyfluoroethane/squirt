@@ -1,0 +1,25 @@
+/* Squirt brand tokens for the ad. Copied from the app (app/src/routes/layout.css). */
+@font-face { font-family: Selawik; src: url(fonts/selawkl.woff2) format('woff2'); font-weight: 300; }
+@font-face { font-family: Selawik; src: url(fonts/selawksl.woff2) format('woff2'); font-weight: 350; }
+@font-face { font-family: Selawik; src: url(fonts/selawk.woff2) format('woff2'); font-weight: 400; }
+@font-face { font-family: Selawik; src: url(fonts/selawksb.woff2) format('woff2'); font-weight: 600; }
+@font-face { font-family: Selawik; src: url(fonts/selawkb.woff2) format('woff2'); font-weight: 700; }
+@font-face { font-family: 'IBM Plex Mono'; src: url(fonts/plex-mono-400.woff2) format('woff2'); font-weight: 400; }
+@font-face { font-family: 'IBM Plex Mono'; src: url(fonts/plex-mono-500.woff2) format('woff2'); font-weight: 500; }
+:root {
+  --magenta: #ec008c;
+  --orange: #f7941d;
+  --gradient: linear-gradient(90deg, var(--magenta), var(--orange));
+  --bg: #0b0b0b;
+  --fg: #f4f4f4;
+  --muted: #8f8f8f;
+  --faint: #4a4a4a;
+  --panel: #161616;
+  --line: rgba(255,255,255,0.09);
+  /* Metro motion (from bigaouette.com): fade in while sliding 80px, 0.7s, 60ms stagger. */
+  --ease-metro: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --sans: Selawik, 'Segoe UI', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+@keyframes metro-enter { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: none; } }
+@keyframes metro-exit { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(-80px); } }

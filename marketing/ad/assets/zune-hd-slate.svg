@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 53 102">
+  <!-- Zune HD, slate. Glass edge to edge, chin = bottom 16%, notch with home key. The screen rect (x6 y6.3 w41 h72.9) is left for scenes to fill. -->
+  <defs>
+    <linearGradient id="metal" x1="0" y1="0" x2="0.2" y2="1"><stop offset="0" stop-color="#47494d"/><stop offset="1" stop-color="#222326"/></linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a3d42"/><stop offset="0.48" stop-color="#26282c"/><stop offset="0.52" stop-color="#0e0f11"/><stop offset="1" stop-color="#08090a"/></linearGradient>
+    <linearGradient id="key" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2b2d31"/><stop offset="0.45" stop-color="#121315"/><stop offset="1" stop-color="#050506"/></linearGradient>
+  </defs>
+  <rect width="53" height="102" rx="2.4" fill="url(#metal)"/>
+  <path d="M0.9 85.8 V2.5 A1.6 1.6 0 0 1 2.5 0.9 H50.5 A1.6 1.6 0 0 1 52.1 2.5 V85.8 H36.3 L34.53 88.07 Q33.9 88.7 33 88.7 H20 Q19.1 88.7 18.47 88.07 L16.7 85.8 Z" fill="url(#glass)"/>
+  <path d="M17.6 85.95 H35.4 L33.8 88.3 H19.2 Z" fill="url(#key)" stroke="#000" stroke-opacity="0.6" stroke-width="0.2"/>
+  <rect x="0.1" y="0.1" width="52.8" height="101.8" rx="2.3" fill="none" stroke="#000" stroke-opacity="0.4" stroke-width="0.25"/>
+</svg>

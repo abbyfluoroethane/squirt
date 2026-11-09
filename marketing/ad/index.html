@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Squirt: 30s ad</title>
+<link rel="stylesheet" href="assets/brand.css">
+<style>
+  html, body { margin: 0; background: #000; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); color: var(--fg); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  /* Every scene fills the stage. A scene controls its own visibility with keyframes. */
+  .scene { position: absolute; inset: 0; opacity: 0; }
+</style>
+<!-- Scene stylesheets are injected below by load(). -->
+</head>
+<body>
+<div id="stage"></div>
+<script>
+  // Scenes are scenes/sN.html (markup) + scenes/sN.css (styles), injected in order.
+  const SCENES = ['s1', 's2', 's3', 's4', 's5'];
+  async function load() {
+    const stage = document.getElementById('stage');
+    for (const s of SCENES) {
+      const [html, css] = await Promise.all([
+        fetch(`scenes/${s}.html`).then((r) => (r.ok ? r.text() : '')),
+        fetch(`scenes/${s}.css`).then((r) => (r.ok ? r.text() : ''))
+      ]);
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.head.appendChild(style);
+      stage.insertAdjacentHTML('beforeend', html);
+    }
+    await document.fonts.ready;
+    window.__ready = true;
+  }
+  load();
+</script>
+</body>
+</html>

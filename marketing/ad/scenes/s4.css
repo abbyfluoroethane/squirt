@@ -1,0 +1,82 @@
+/* s4 "now playing", 17.6-24.0 s. All times absolute seconds. */
+
+/* Visibility: crossfade in 17.6-18.0, hold, gone at 24.0 (hard cut to s5).
+   1% = 0.3 s: 58.667% = 17.6 s, 60% = 18.0 s, 80% = 24.0 s. */
+.s4 { background: #000; overflow: hidden; animation: s4-vis 30s linear both; }
+@keyframes s4-vis {
+  0%, 58.6%   { opacity: 0; }
+  60%, 80%    { opacity: 1; }
+  80.1%, 100% { opacity: 0; }
+}
+
+/* Content fades to black 23.7-24.0. */
+.s4 .s4-content { position: absolute; inset: 0; animation: s4-content-out 0.3s linear 23.7s both; }
+@keyframes s4-content-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* Huge faint artist name drifting right to left, 17.8-23.7. */
+.s4 .s4-drift {
+  position: absolute; left: 0; top: 40px;
+  font: 300 520px/1 var(--sans); color: #161616; white-space: nowrap;
+  animation: s4-drift 5.9s linear 17.8s both;
+}
+@keyframes s4-drift { from { transform: translateX(300px); } to { transform: translateX(-900px); } }
+
+/* Album art, abstract slate and rose geometry, 520x520 at (200, 280). */
+.s4 .s4-art-wrap { position: absolute; left: 200px; top: 280px; width: 520px; height: 520px; animation: metro-enter 0.7s var(--ease-metro) 18s both; }
+.s4 .s4-art { position: relative; width: 520px; height: 520px; overflow: hidden; background: #27313c; }
+.s4 .s4-art > div { position: absolute; }
+.s4 .s4-a-band { left: 0; top: 330px; width: 520px; height: 190px; background: #34414f; }
+.s4 .s4-a-rose { left: 70px; top: 60px; width: 260px; height: 260px; background: #c46680; }
+.s4 .s4-a-tri  { left: 230px; top: 150px; width: 290px; height: 370px; background: #151b22; clip-path: polygon(100% 0, 100% 100%, 0 100%); }
+.s4 .s4-a-sq   { left: 300px; top: 70px; width: 130px; height: 130px; border: 3px solid #e7aebd; transform: rotate(18deg); }
+.s4 .s4-a-bar1 { left: 40px; top: 360px; width: 190px; height: 14px; background: #8e4a5e; }
+.s4 .s4-a-bar2 { left: 40px; top: 392px; width: 130px; height: 14px; background: #c46680; }
+.s4 .s4-a-bar3 { left: 40px; top: 424px; width: 70px; height: 14px; background: #e7aebd; }
+
+/* Title block at x 780. */
+.s4 .s4-meta { position: absolute; left: 780px; top: 340px; width: 940px; }
+.s4 .s4-title { font: 300 96px/100px var(--sans); color: #f4f4f4; white-space: nowrap; animation: metro-enter 0.7s var(--ease-metro) 18.2s both; }
+.s4 .s4-artist { margin-top: 8px; font: 350 36px/44px var(--sans); color: #f4f4f4; animation: metro-enter 0.7s var(--ease-metro) 18.26s both; }
+.s4 .s4-album { font: 350 24px/32px var(--sans); color: #a0a0a0; animation: metro-enter 0.7s var(--ease-metro) 18.32s both; }
+
+/* Seek bar x 780-1720, y 640. Fill runs 31% to 64% across the scene. */
+.s4 .s4-seek { position: absolute; left: 780px; top: 638px; width: 940px; animation: metro-enter 0.7s var(--ease-metro) 18.4s both; }
+.s4 .s4-seek-track { position: relative; height: 4px; background: rgba(255,255,255,0.15); }
+.s4 .s4-seek-fill { position: absolute; left: 0; top: 0; height: 4px; width: 31%; background: var(--gradient); animation: s4-seek 6.1s linear 17.6s both; }
+@keyframes s4-seek { from { width: 31%; } to { width: 64%; } }
+.s4 .s4-times { display: flex; justify-content: space-between; margin-top: 12px; font: 400 22px/28px var(--mono); color: #8a8a8a; }
+.s4 .s4-elapsed { position: relative; display: inline-block; width: 4ch; height: 28px; }
+.s4 .s4-tk { position: absolute; left: 0; top: 0; opacity: 0; animation: s4-tick 30s linear both; animation-fill-mode: forwards; }
+@keyframes s4-tick { 0%, 2.9% { opacity: 1; } 3%, 100% { opacity: 0; } }
+.s4 .s4-tk:nth-child(1) { animation-delay: 17.6s; }
+.s4 .s4-tk:nth-child(2) { animation-delay: 18.47s; }
+.s4 .s4-tk:nth-child(3) { animation-delay: 19.34s; }
+.s4 .s4-tk:nth-child(4) { animation-delay: 20.22s; }
+.s4 .s4-tk:nth-child(5) { animation-delay: 21.09s; }
+.s4 .s4-tk:nth-child(6) { animation-delay: 21.96s; }
+.s4 .s4-tk:nth-child(7) { animation-delay: 22.83s; }
+
+/* Round outline transport buttons (the only circles). */
+.s4 .s4-controls { position: absolute; left: 780px; top: 703px; height: 64px; display: flex; align-items: center; gap: 20px; }
+.s4 .s4-btn { display: flex; align-items: center; justify-content: center; box-sizing: border-box; border-radius: 50%; border: 2px solid #f4f4f4; }
+.s4 .s4-btn-sm { width: 48px; height: 48px; }
+.s4 .s4-btn-lg { width: 64px; height: 64px; }
+.s4 .s4-btn-sm svg { width: 20px; height: 20px; }
+.s4 .s4-btn-lg svg { width: 26px; height: 26px; }
+.s4 .s4-b1 { animation: metro-enter 0.7s var(--ease-metro) 18.5s both; }
+.s4 .s4-b2 { animation: metro-enter 0.7s var(--ease-metro) 18.56s both; }
+.s4 .s4-b3 { animation: metro-enter 0.7s var(--ease-metro) 18.62s both; }
+
+/* Lines at x 780, y 780, 72 px. Enter via inner span, exit via outer wrapper. */
+.s4 .s4-line { position: absolute; left: 780px; top: 815px; font: 300 72px/80px var(--sans); color: #f4f4f4; white-space: nowrap; }
+.s4 .s4-line > span { display: inline-block; }
+.s4 .s4-line1 { animation: s4-line-out 0.3s linear 22.5s both; }
+.s4 .s4-line1 > span { animation: metro-enter 0.7s var(--ease-metro) 20.6s both; }
+.s4 .s4-line2 > span { animation: metro-enter 0.7s var(--ease-metro) 22.9s both; }
+@keyframes s4-line-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* Badges, bottom-left, 20.0 s. */
+.s4 .s4-badges { position: absolute; left: 120px; top: 920px; display: flex; gap: 16px; }
+.s4 .s4-badge { display: inline-block; padding: 10px 18px; border: 1px solid #333; font: 350 22px/28px var(--sans); color: #f4f4f4; white-space: nowrap; }
+.s4 .s4-badge1 { animation: metro-enter 0.7s var(--ease-metro) 20s both; }
+.s4 .s4-badge2 { animation: metro-enter 0.7s var(--ease-metro) 20.06s both; }

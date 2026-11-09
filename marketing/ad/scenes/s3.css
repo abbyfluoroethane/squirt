@@ -1,0 +1,92 @@
+/* s3 "the device", 11.6-18.0 s. Percent of 30 s: 11.6=38.667, 12.0=40, 17.6=58.667, 18.0=60 */
+.s3 { animation: s3-vis 30s linear both; overflow: hidden; }
+@keyframes s3-vis {
+  0%, 39.9%     { opacity: 0; }
+  40%, 59.5%    { opacity: 1; }
+  60%, 100%     { opacity: 0; }
+}
+
+@keyframes s3-in  { from { opacity: 0; transform: translateX(80px); } to { opacity: 1; transform: none; } }
+@keyframes s3-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* Title and spec labels: enter, then fade at 17.4-17.6 */
+.s3 .s3-fade {
+  animation: s3-in 0.7s var(--ease-metro) both, s3-out 0.2s linear 17.4s forwards;
+}
+.s3 .s3-title {
+  position: absolute; left: 120px; top: 120px; margin: 0;
+  font: 300 120px/1 var(--sans); letter-spacing: -0.01em; color: var(--fg);
+  animation-delay: 12.0s, 17.4s;
+}
+
+/* Spec column */
+.s3 .s3-specs { position: absolute; left: 120px; top: 300px; width: 800px; height: 434px; }
+.s3 .s3-spec { position: absolute; left: 0; display: flex; flex-direction: column; gap: 6px; }
+.s3 .s3-spec:nth-child(1) { top: 0; }
+.s3 .s3-spec:nth-child(2) { top: 116px; }
+.s3 .s3-spec:nth-child(3) { top: 232px; }
+.s3 .s3-spec:nth-child(4) { top: 348px; }
+.s3 .s3-spec { animation-delay: calc(12.6s + var(--i) * 0.06s), 17.4s; }
+.s3 .s3-k { font: 400 24px/28px var(--sans); color: #8a8a8a; }
+.s3 .s3-v { font: 400 48px/52px var(--mono); color: var(--fg); }
+
+/* Device: 700 px tall, 363.7 wide, centred x 1250 y 540. 1 svg unit = 6.863 px */
+.s3 .s3-device {
+  position: absolute; left: 1068px; top: 190px; width: 364px; height: 700px;
+  animation: s3-in 0.7s var(--ease-metro) 12.2s both;
+}
+.s3 .s3-slate { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.s3 .s3-screen {
+  position: absolute; left: 41px; top: 43px; width: 281px; height: 500px;
+  overflow: hidden; background: #0e0e0e;
+}
+.s3 .s3-art {
+  position: absolute; left: 0; top: 0; width: 100%; height: 310px;
+  background: linear-gradient(160deg, var(--magenta), var(--orange));
+}
+.s3 .s3-np {
+  position: absolute; left: 20px; top: 18px;
+  font: 300 30px/1 var(--sans); color: #fff;
+}
+.s3 .s3-meta {
+  position: absolute; left: 20px; top: 336px; display: flex; flex-direction: column; gap: 6px;
+}
+.s3 .s3-song { font: 300 34px/1.1 var(--sans); color: var(--fg); }
+.s3 .s3-artist { font: 400 22px/1.2 var(--sans); color: var(--muted); }
+
+/* Statements, stacked at x 120 y 820 */
+.s3 .s3-line {
+  position: absolute; left: 120px; top: 820px; margin: 0; white-space: nowrap;
+  font: 300 80px/1 var(--sans); color: var(--fg);
+}
+.s3 .s3-line1 {
+  animation: s3-in 0.7s var(--ease-metro) 13.4s both, s3-out 0.3s linear 15.3s forwards;
+}
+.s3 .s3-line2 {
+  animation: s3-in 0.7s var(--ease-metro) 15.8s both, s3-out 0.2s linear 17.4s forwards;
+}
+
+/* Sync strip x 120-1000, y 940 */
+.s3 .s3-sync {
+  position: absolute; left: 120px; top: 940px; width: 880px; height: 60px;
+  animation: s3-in 0.7s var(--ease-metro) 13.6s both, s3-out 0.2s linear 17.4s forwards;
+}
+.s3 .s3-track { position: absolute; left: 0; top: 0; width: 880px; height: 6px; background: var(--panel); }
+.s3 .s3-fill {
+  width: 880px; height: 6px; background: var(--gradient);
+  transform-origin: left center;
+  animation: s3-fill 3.6s linear 13.8s both;
+}
+@keyframes s3-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.s3 .s3-label {
+  position: absolute; left: 0; top: 22px; display: flex; align-items: center;
+  font: 400 22px/30px var(--mono); color: var(--muted); white-space: nowrap;
+}
+.s3 .s3-count { display: block; width: 2ch; height: 30px; overflow: hidden; color: var(--fg); }
+.s3 .s3-roll {
+  display: block;
+  animation: s3-tick 3.4s steps(26, end) 13.8s both;
+}
+.s3 .s3-roll i { display: block; height: 30px; font-style: normal; }
+@keyframes s3-tick { from { transform: translateY(0); } to { transform: translateY(-780px); } }
