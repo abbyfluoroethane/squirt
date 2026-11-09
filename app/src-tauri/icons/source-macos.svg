@@ -14,7 +14,7 @@
 		<clipPath id="mid"><path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 76.6 81.9 C66 72 62 58 66 44 C68 32 60 18 50 6 Z"/></clipPath>
 	</defs>
 	<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#plate)" filter="url(#plateShadow)"/>
-	<g transform="translate(512 512) scale(5.6) translate(-50 -51)" filter="url(#cast)">
+	<g transform="translate(512 512) scale(6.4) translate(-50 -51)" filter="url(#cast)">
 		<path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 82 64 C82 44 50 6 50 6 Z" fill="url(#orange)"/>
 		<g clip-path="url(#drop)"><path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 76.6 81.9 C66 72 62 58 66 44 C68 32 60 18 50 6 Z" transform="translate(4 2)" fill="#5c0030" opacity="0.38" filter="url(#soft)"/></g>
 		<path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 76.6 81.9 C66 72 62 58 66 44 C68 32 60 18 50 6 Z" fill="url(#rose)"/>
