@@ -1,3 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/squirt-mtp", "crates/squirt-cli", "crates/squirt-library", "crates/squirt-player", "crates/squirt-service"]
+members = ["crates/squirt-mtp", "crates/squirt-cli", "crates/squirt-library", "crates/squirt-player", "crates/squirt-service", "app/src-tauri"]
+
+# Dev builds: optimize dependencies and the audio path, so decoding keeps up
+# with playback; our other crates stay quick to compile.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev.package.squirt-player]
+opt-level = 2

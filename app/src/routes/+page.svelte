@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { connect, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type Track } from '$lib/api';
+	import { connect, isTauri, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type Track } from '$lib/api';
 	import { bytes, duration } from '$lib/format';
 	import { theme, type Theme } from '$lib/theme.svelte';
 	import Pivot from '$lib/components/zune/Pivot.svelte';
@@ -113,13 +113,18 @@
 	const selectedOnDevice = $derived(selected?.tracks.every((t) => t.onDevice) ?? false);
 
 	const THEMES: Theme[] = ['system', 'light', 'dark'];
+	const macApp = isTauri && typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
 </script>
 
 <svelte:window onkeydown={onKey} />
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<header class="flex shrink-0 flex-col gap-3 px-6 pt-5">
-		<div class="flex items-center gap-3 text-xs font-semibold tracking-wide text-muted-foreground lowercase">
+	<!-- In the app, the header doubles as the window's title bar (macOS draws
+	     the traffic lights over its top-left corner). -->
+	<header class="flex shrink-0 flex-col gap-3 px-6 {macApp ? 'pt-0' : 'pt-5'}" data-tauri-drag-region>
+		<!-- On macOS the brand row shares the title bar with the traffic lights:
+		     28px tall, starting just right of them. -->
+		<div class="flex items-center gap-3 text-xs font-semibold tracking-wide text-muted-foreground lowercase {macApp ? 'pointer-events-none -mb-1 h-7 pl-[58px]' : ''}">
 			<span class="zune-gradient inline-block size-2.5"></span>squirt
 			{#if backend === 'mock'}<span class="font-normal text-faint">· browser preview, mock data (run <code class="font-mono">squirt serve</code> for your library)</span>
 			{:else if backend === 'dev-api'}<span class="font-normal text-faint">· browser preview, your library</span>{/if}
