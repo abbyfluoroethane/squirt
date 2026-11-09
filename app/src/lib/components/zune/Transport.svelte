@@ -60,11 +60,12 @@
 	{:else}
 		<div class="size-14 shrink-0 bg-muted"></div>
 	{/if}
-	<div class="-ml-1 flex w-[26rem] max-w-[34vw] flex-col gap-1.5">
-		<div class="flex min-w-0 items-baseline gap-2">
+	<div class="-ml-1 flex w-[26rem] max-w-[34vw] flex-col gap-1">
+		<!-- Song name, then artist · album beneath it. -->
+		<div class="flex min-w-0 flex-col leading-tight">
 			{#if active}
 				<span class="truncate">{title}</span>
-				<span class="flex min-w-0 items-baseline gap-1 truncate text-xs text-muted-foreground">
+				<span class="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
 					<button class="link truncate" onclick={onArtist}>{artist}</button>·<button class="link truncate" onclick={onAlbum}>{album}</button>
 				</span>
 			{:else}
