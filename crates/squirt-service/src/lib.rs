@@ -84,6 +84,17 @@ pub struct PlayerStateDto {
     pub queue: Vec<i64>,
 }
 
+/// What the OS "now playing" panel shows for a library track.
+#[derive(Debug, Clone)]
+pub struct NowPlaying {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_ms: u64,
+    /// Cover art as a JPEG file on disk, if the track has art.
+    pub art_path: Option<PathBuf>,
+}
+
 // ----------------------------------------------------------------- device
 
 /// The device's music, read once per connection (it takes a few seconds).
@@ -388,6 +399,19 @@ impl Service {
             pb.queue = ids;
             pb.player.play_queue(paths, start.min(pb.queue.len() - 1));
         })?;
+        Ok(self.settled())
+    }
+
+    /// Title, artist, album and art for a library track.
+    pub fn now_playing(&self, id: i64) -> Option<NowPlaying> {
+        let lib = self.lib.lock().unwrap();
+        let t = lib.track(id).ok().flatten()?;
+        let art_path = t.art.as_deref().map(|k| lib.art_path(k)).filter(|p| p.exists());
+        Some(NowPlaying { title: t.title, artist: t.artist, album: t.album, duration_ms: t.duration_ms, art_path })
+    }
+
+    pub fn stop(&self) -> Result<PlayerStateDto> {
+        self.with_player(|pb| pb.player.stop())?;
         Ok(self.settled())
     }
 

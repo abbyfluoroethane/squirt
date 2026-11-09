@@ -1,10 +1,12 @@
 //! The Squirt desktop app: Tauri commands over `squirt_service::Service`,
 //! plus a `squirt://` protocol that serves album art to the webview.
 
+mod media;
+
 use squirt_service::{AlbumDto, DeviceStatus, PlayerStateDto, Service};
 use std::sync::Arc;
 use tauri::http::Response;
-use tauri::State;
+use tauri::{Manager, State};
 
 type Svc<'a> = State<'a, Arc<Service>>;
 
@@ -67,6 +69,11 @@ pub fn run() {
     let art_svc = svc.clone();
     tauri::Builder::default()
         .manage(svc)
+        .setup(|app| {
+            let svc = app.state::<Arc<Service>>().inner().clone();
+            media::init(app.handle(), svc);
+            Ok(())
+        })
         // squirt://localhost/<key>: album art by key (lib/<hash> or dev/<handle>).
         .register_asynchronous_uri_scheme_protocol("squirt", move |_ctx, request, responder| {
             let svc = art_svc.clone();
