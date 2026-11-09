@@ -24,7 +24,8 @@
    - [x] Bulk transport: claim the interface, then send command, data and
      response containers. Not yet tested on a device.
    - [x] GetDeviceInfo and OpenSession (`squirt info`). Not yet tested on a device.
-   - [ ] MTPZ handshake, written clean-room from `docs/mtpz-protocol.md`.
+   - [x] MTPZ handshake, written clean-room from `docs/mtpz-protocol.md`
+     (`squirt auth`). Passes the spec vectors and a simulated device; not yet tested on hardware.
    - [ ] GetStorageIDs and GetStorageInfo.
    - [ ] Push one MP3 with metadata.
    - [ ] Create an album object with cover art.

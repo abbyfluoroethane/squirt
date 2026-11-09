@@ -36,7 +36,8 @@ pub mod op {
     pub const CLOSE_SESSION: u16 = 0x1003;
     pub const GET_STORAGE_IDS: u16 = 0x1004;
     pub const GET_STORAGE_INFO: u16 = 0x1005;
-    // MTPZ / WMDRMPD vendor ops. Values are from libmtp's ptp.h; check them on a real device.
+    pub const SET_DEVICE_PROP_VALUE: u16 = 0x1016;
+    // MTPZ / WMDRMPD vendor ops (docs/mtpz-protocol.md section 2).
     pub const WMDRMPD_SEND_APP_REQUEST: u16 = 0x9212;
     pub const WMDRMPD_GET_APP_RESPONSE: u16 = 0x9213;
     pub const ENABLE_TRUSTED_FILES_OPERATIONS: u16 = 0x9214;

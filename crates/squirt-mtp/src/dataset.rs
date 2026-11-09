@@ -44,6 +44,18 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// Encodes a PTP string: u8 count of UTF-16 units including NUL, then UTF-16LE.
+/// The empty string is a single zero byte.
+pub fn encode_string(s: &str) -> Vec<u8> {
+    if s.is_empty() {
+        return vec![0];
+    }
+    let units: Vec<u16> = s.encode_utf16().chain([0]).take(255).collect();
+    let mut out = vec![units.len() as u8];
+    units.iter().for_each(|u| out.extend(u.to_le_bytes()));
+    out
+}
+
 #[derive(Debug, Clone)]
 pub struct DeviceInfo {
     pub standard_version: u16,
@@ -93,13 +105,14 @@ mod tests {
     use super::*;
 
     fn ptp_str(s: &str, out: &mut Vec<u8>) {
-        if s.is_empty() {
-            out.push(0);
-            return;
-        }
-        let units: Vec<u16> = s.encode_utf16().chain([0]).collect();
-        out.push(units.len() as u8);
-        units.iter().for_each(|u| out.extend(u.to_le_bytes()));
+        out.extend(encode_string(s));
+    }
+
+    #[test]
+    fn string_roundtrip() {
+        let b = encode_string("Squirt");
+        assert_eq!(b[0], 7);
+        assert_eq!(Reader::new(&b).string().unwrap(), "Squirt");
     }
 
     #[test]

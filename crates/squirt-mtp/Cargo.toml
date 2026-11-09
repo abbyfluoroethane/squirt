@@ -5,6 +5,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+aes = "0.8"
+cmac = "0.7"
+getrandom = "0.3"
 hex = "0.4.3"
+num-bigint = "0.4"
 nusb = "0.2.9"
+sha1 = "0.10"
 thiserror = "2.0.21"
