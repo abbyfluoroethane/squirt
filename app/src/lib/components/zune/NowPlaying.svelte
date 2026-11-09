@@ -59,7 +59,7 @@
 		{track.artist} &nbsp; {track.artist} &nbsp; {track.artist}
 	</div>
 
-	<div class="relative flex h-full flex-col px-12 pt-8 pb-10">
+	<div class="relative flex h-full flex-col px-12 pt-12 pb-10">
 		<button class="flex w-fit items-center gap-2 text-muted-foreground transition-colors hover:text-foreground" onclick={onClose}>
 			<ArrowLeft size={18} /><span class="subpivot">back</span>
 		</button>
