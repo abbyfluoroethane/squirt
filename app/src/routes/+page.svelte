@@ -13,6 +13,7 @@
 	import { Check, Play, SpeakerHigh, SpeakerSimpleNone } from 'phosphor-svelte';
 	import ZuneHD from '$lib/components/zune/ZuneHD.svelte';
 	import NowPlaying from '$lib/components/zune/NowPlaying.svelte';
+	import SquirtMark from '$lib/components/zune/SquirtMark.svelte';
 	import { tick } from 'svelte';
 
 	const PIVOTS = ['collection', 'device', 'settings'] as const;
@@ -128,7 +129,7 @@
 		     leaves a gap after the green light about as wide as the gaps between
 		     the lights. -->
 		<div class="flex items-center gap-2.5 text-xs font-semibold tracking-wide text-muted-foreground lowercase {macApp ? 'pointer-events-none relative top-[3.5px] -mb-1 h-8 pl-[66px]' : ''}">
-			<span class="zune-gradient inline-block size-3.5"></span><span class="text-[0.95rem] leading-none">squirt</span>
+			<SquirtMark size={18} /><span class="text-[0.95rem] leading-none">squirt</span>
 			{#if backend === 'mock'}<span class="font-normal text-faint">· browser preview, mock data (run <code class="font-mono">squirt serve</code> for your library)</span>
 			{:else if backend === 'dev-api'}<span class="font-normal text-faint">· browser preview, your library</span>{/if}
 		</div>
