@@ -21,9 +21,9 @@
    - [x] Detect the device.
    - [x] PTP container codec.
    - [x] Key file loader.
-   - [ ] Bulk transport: claim the interface, then send command, data and
-     response containers.
-   - [ ] GetDeviceInfo and OpenSession.
+   - [x] Bulk transport: claim the interface, then send command, data and
+     response containers. Not yet tested on a device.
+   - [x] GetDeviceInfo and OpenSession (`squirt info`). Not yet tested on a device.
    - [ ] MTPZ handshake, written clean-room from `docs/mtpz-protocol.md`.
    - [ ] GetStorageIDs and GetStorageInfo.
    - [ ] Push one MP3 with metadata.

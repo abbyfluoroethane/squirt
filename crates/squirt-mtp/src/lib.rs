@@ -9,5 +9,7 @@
 //! album/artwork objects.
 
 pub mod container;
+pub mod dataset;
 pub mod devices;
 pub mod mtpz;
+pub mod transport;
