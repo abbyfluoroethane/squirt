@@ -87,10 +87,24 @@
 	};
 	// The slider owns the volume while you use it; it starts from the player's.
 	let volume = $state(0.7);
-	let volumeTimer: ReturnType<typeof setTimeout>;
-	function setVolume(v: number) {
-		clearTimeout(volumeTimer);
-		volumeTimer = setTimeout(() => api?.player.volume(v), 60);
+	// Send the newest value as fast as the backend takes it: one request in
+	// flight at a time, always finishing on the latest value. (A debounce here
+	// made the volume lag behind the slider.)
+	let volumeBusy = false;
+	let volumeNext: number | null = null;
+	async function setVolume(v: number) {
+		volumeNext = v;
+		if (volumeBusy) return;
+		volumeBusy = true;
+		try {
+			while (volumeNext !== null) {
+				const x = volumeNext;
+				volumeNext = null;
+				await api?.player.volume(x);
+			}
+		} finally {
+			volumeBusy = false;
+		}
 	}
 
 	function onKey(e: KeyboardEvent) {
