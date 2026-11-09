@@ -29,7 +29,7 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Linux packages
         run: |
           sudo apt-get update
@@ -37,7 +37,7 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev libasound2-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
@@ -66,7 +66,7 @@ jobs:
           - { os: windows-2022, target: x86_64-pc-windows-msvc, ffmpeg: x86_64-pc-windows-gnu, bundles: 'msi,nsis' }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Linux packages
         if: startsWith(matrix.os, 'ubuntu')
         run: |
@@ -77,12 +77,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: app/package-lock.json
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ffmpeg-${{ matrix.ffmpeg }}
           path: app/src-tauri/binaries
@@ -106,7 +106,7 @@ jobs:
         run: |
           npm ci
           npx tauri build --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: squirt-${{ matrix.target }}
           if-no-files-found: error
@@ -125,7 +125,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: squirt-*
           path: dist

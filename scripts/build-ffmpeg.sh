@@ -28,7 +28,7 @@ JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
 mkdir -p "$WORK" "$OUT"
 cd "$WORK"
 if [ ! -f "ffmpeg-$VERSION.tar.xz" ]; then
-	curl -fsSL -o "ffmpeg-$VERSION.tar.xz" "$URL"
+	curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o "ffmpeg-$VERSION.tar.xz" "$URL"
 fi
 if command -v shasum >/dev/null; then got=$(shasum -a 256 "ffmpeg-$VERSION.tar.xz" | cut -d' ' -f1); else got=$(sha256sum "ffmpeg-$VERSION.tar.xz" | cut -d' ' -f1); fi
 if [ "$SHA256" != "PENDING" ] && [ "$got" != "$SHA256" ]; then
