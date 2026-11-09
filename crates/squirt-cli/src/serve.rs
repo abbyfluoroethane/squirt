@@ -71,15 +71,118 @@ fn device_status() -> Value {
     })
 }
 
+fn query(url: &str, key: &str) -> Option<String> {
+    url.split_once('?')?.1.split('&').find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        (k == key).then(|| v.to_string())
+    })
+}
+
+/// Player plus the library ids of its queue, so events map back to tracks.
+struct Playback {
+    player: squirt_player::Player,
+    queue: Vec<i64>,
+}
+
+fn player_state(pb: &Option<Playback>) -> Value {
+    let Some(pb) = pb else {
+        return json!({ "status": "stopped", "trackId": null, "positionMs": 0, "durationMs": 0, "volume": 0.7, "queue": [] });
+    };
+    let s = pb.player.state();
+    json!({
+        "status": format!("{:?}", s.status).to_lowercase(),
+        "trackId": s.index.and_then(|i| pb.queue.get(i).copied()),
+        "positionMs": s.position_ms,
+        "durationMs": s.duration_ms,
+        "volume": s.volume,
+        "queue": pb.queue,
+    })
+}
+
 pub fn serve(port: u16) -> Result<()> {
     let lib = crate::open_library()?;
+    let mut playback: Option<Playback> = None;
     let server = Server::http(("127.0.0.1", port)).map_err(|e| anyhow::anyhow!("{e}"))?;
     println!("squirt dev API on http://127.0.0.1:{port}/api");
     let json_header = Header::from_bytes("Content-Type", "application/json").unwrap();
     let mut device_cache: Option<(Instant, Value)> = None;
 
     for req in server.incoming_requests() {
-        let url = req.url().split('?').next().unwrap_or("").to_string();
+        let full = req.url().to_string();
+        let url = full.split('?').next().unwrap_or("").to_string();
+
+        // Count plays for tracks that finished since the last request.
+        if let Some(pb) = &playback {
+            for e in pb.player.take_events() {
+                if let squirt_player::Event::TrackCompleted(i) = e {
+                    if let Some(id) = pb.queue.get(i) {
+                        let _ = lib.record_play(*id);
+                    }
+                }
+            }
+        }
+
+        if let Some(action) = url.strip_prefix("/api/player/") {
+            if action != "state" {
+                if playback.is_none() {
+                    match squirt_player::Player::new() {
+                        Ok(p) => {
+                            p.set_volume(0.7);
+                            playback = Some(Playback { player: p, queue: Vec::new() });
+                        }
+                        Err(e) => {
+                            let _ = req.respond(Response::from_string(e.to_string()).with_status_code(500));
+                            continue;
+                        }
+                    }
+                }
+                let pb = playback.as_mut().unwrap();
+                match action {
+                    "play" => {
+                        let ids: Vec<i64> = query(&full, "ids")
+                            .unwrap_or_default()
+                            .split(',')
+                            .filter_map(|x| x.parse().ok())
+                            .collect();
+                        let start: usize = query(&full, "start").and_then(|v| v.parse().ok()).unwrap_or(0);
+                        let paths: Vec<_> = ids
+                            .iter()
+                            .filter_map(|id| lib.track(*id).ok().flatten().map(|t| t.path))
+                            .collect();
+                        if !paths.is_empty() {
+                            pb.queue = ids;
+                            pb.player.play_queue(paths, start.min(pb.queue.len() - 1));
+                        }
+                    }
+                    "toggle" => pb.player.toggle(),
+                    "next" => pb.player.next(),
+                    "prev" => pb.player.prev(),
+                    "stop" => pb.player.stop(),
+                    "seek" => {
+                        if let Some(ms) = query(&full, "ms").and_then(|v| v.parse().ok()) {
+                            pb.player.seek(ms);
+                        }
+                    }
+                    "volume" => {
+                        if let Some(v) = query(&full, "v").and_then(|v| v.parse().ok()) {
+                            pb.player.set_volume(v);
+                        }
+                    }
+                    "jump" => {
+                        if let Some(i) = query(&full, "i").and_then(|v| v.parse().ok()) {
+                            pb.player.jump(i);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            // Give the player a moment to act so the returned state is current.
+            if action != "state" {
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            let _ = req.respond(Response::from_string(player_state(&playback).to_string()).with_header(json_header.clone()));
+            continue;
+        }
         let resp = match url.as_str() {
             "/api/health" => Response::from_string(json!({ "ok": true }).to_string()).with_header(json_header.clone()).boxed(),
             "/api/collection" => match collection(&lib) {

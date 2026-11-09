@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { connect, type Album, type Api, type Backend, type DeviceStatus } from '$lib/api';
+	import { connect, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type Track } from '$lib/api';
 	import { bytes, duration } from '$lib/format';
 	import { theme, type Theme } from '$lib/theme.svelte';
 	import Pivot from '$lib/components/zune/Pivot.svelte';
 	import AlbumArt from '$lib/components/zune/AlbumArt.svelte';
 	import DeviceBar from '$lib/components/zune/DeviceBar.svelte';
+	import Transport from '$lib/components/zune/Transport.svelte';
+	import { Slider } from '$lib/components/ui/slider';
 	import { Button } from '$lib/components/ui/button';
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
-	import { Check } from 'phosphor-svelte';
+	import { Check, Play, SpeakerHigh, SpeakerSimpleNone } from 'phosphor-svelte';
 	import ZuneHD from '$lib/components/zune/ZuneHD.svelte';
 
 	const PIVOTS = ['collection', 'device', 'settings'] as const;
@@ -23,18 +25,50 @@
 	let selectedId = $state<string | null>(null);
 
 	let backend = $state<Backend>('mock');
+	let api: Api | null = null;
+	let player = $state<PlayerState>({ status: 'stopped', trackId: null, positionMs: 0, durationMs: 0, volume: 0.7, queue: [] });
 
 	onMount(() => {
-		let api: Api;
-		let timer: ReturnType<typeof setInterval>;
+		const timers: ReturnType<typeof setInterval>[] = [];
 		(async () => {
-			({ api, backend } = await connect());
-			[device, albums] = await Promise.all([api.device(), api.collection()]);
+			const c = await connect();
+			api = c.api;
+			backend = c.backend;
+			[device, albums, player] = await Promise.all([c.api.device(), c.api.collection(), c.api.player.state()]);
+			volume = player.volume;
 			// Notice the Zune being plugged in or out.
-			timer = setInterval(async () => (device = await api.device()), 5000);
+			timers.push(setInterval(async () => (device = await c.api.device()), 5000));
+			timers.push(setInterval(async () => (player = await c.api.player.state()), 500));
 		})();
-		return () => clearInterval(timer);
+		return () => timers.forEach(clearInterval);
 	});
+
+	// Track id -> track and album, for the now-playing line.
+	const byId = $derived(new Map(albums.flatMap((a) => a.tracks.map((t) => [t.id, { t, a }] as const))));
+	const nowPlaying = $derived(player.trackId !== null ? byId.get(player.trackId) : undefined);
+
+	async function playAlbum(al: Album, start = 0) {
+		const ids = al.tracks.map((t) => t.id).filter((x): x is number => x !== undefined);
+		if (api && ids.length) player = await api.player.play(ids, start);
+	}
+	const act = (f: (a: Api) => Promise<PlayerState>) => async () => {
+		if (api) player = await f(api);
+	};
+	// The slider owns the volume while you use it; it starts from the player's.
+	let volume = $state(0.7);
+	let volumeTimer: ReturnType<typeof setTimeout>;
+	function setVolume(v: number) {
+		clearTimeout(volumeTimer);
+		volumeTimer = setTimeout(() => api?.player.volume(v), 60);
+	}
+
+	function onKey(e: KeyboardEvent) {
+		if (e.code === 'Space' && !(e.target instanceof HTMLInputElement)) {
+			e.preventDefault();
+			act((a) => a.player.toggle())();
+		}
+	}
+	const isPlaying = (t: Track) => t.id !== undefined && t.id === player.trackId;
 
 	// "device" shows only what is on the Zune; "collection" shows everything.
 	const visible = $derived(
@@ -48,6 +82,8 @@
 
 	const THEMES: Theme[] = ['system', 'light', 'dark'];
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="flex h-dvh flex-col overflow-hidden">
 	<header class="flex shrink-0 flex-col gap-3 px-6 pt-5">
@@ -122,6 +158,7 @@
 								{[selected.genre, selected.year, `${selected.tracks.length} songs`].filter(Boolean).join(' · ')}
 							</span>
 						</div>
+						<Button size="sm" variant="outline" class="lowercase" onclick={() => playAlbum(selected!)}><Play weight="fill" />play</Button>
 						{#if pivot === 'collection'}
 							{#if selectedOnDevice}
 								<span class="flex items-center gap-1.5 pb-1 text-xs text-muted-foreground lowercase"><Check size={14} />on device</span>
@@ -138,8 +175,12 @@
 							{#if multiDisc && (i === 0 || selected.tracks[i - 1].disc !== t.disc)}
 								<div class="colhead px-1.5 pt-3 pb-1">disc {t.disc}</div>
 							{/if}
-							<div class="grid grid-cols-[2.5rem_1fr_3.5rem_1.25rem] items-center gap-x-3 px-1.5 py-1 hover:bg-accent">
-								<span class="tabular text-xs text-muted-foreground">{t.n}</span>
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div class="grid grid-cols-[2.5rem_1fr_3.5rem_1.25rem] items-center gap-x-3 px-1.5 py-1 hover:bg-accent {isPlaying(t) ? 'text-magenta' : ''}"
+								ondblclick={() => playAlbum(selected!, i)}>
+								<span class="tabular text-xs {isPlaying(t) ? '' : 'text-muted-foreground'}">
+									{#if isPlaying(t)}<SpeakerHigh size={13} weight="fill" class="inline" />{:else}{t.n}{/if}
+								</span>
 								<span class="truncate">{t.title}</span>
 								<span class="tabular text-right text-xs text-muted-foreground">{duration(t.durationMs)}</span>
 								{#if t.onDevice}<ZuneHD size={14} class="text-muted-foreground" />{:else}<span></span>{/if}
@@ -157,7 +198,23 @@
 		{/if}
 	</main>
 
-	<DeviceBar {device} />
+	<footer class="grid h-24 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-6 border-t px-6">
+		<DeviceBar {device} />
+		<Transport
+			state={player}
+			title={nowPlaying?.t.title}
+			subtitle={nowPlaying ? `${nowPlaying.t.artist} · ${nowPlaying.a.title}` : undefined}
+			onToggle={act((a) => a.player.toggle())}
+			onPrev={act((a) => a.player.prev())}
+			onNext={act((a) => a.player.next())}
+			onSeek={(ms) => act((a) => a.player.seek(ms))()}
+		/>
+		<div class="flex items-center justify-end gap-2.5 text-muted-foreground">
+			<SpeakerSimpleNone size={16} />
+			<Slider type="single" bind:value={volume} min={0} max={1} step={0.01} class="w-28" onValueChange={setVolume} aria-label="volume" />
+			<SpeakerHigh size={16} />
+		</div>
+	</footer>
 </div>
 
 <style>

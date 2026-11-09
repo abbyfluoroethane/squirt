@@ -53,9 +53,31 @@ export interface SyncProgress {
 	bytesTotal: number;
 }
 
+export type PlayStatus = 'stopped' | 'playing' | 'paused';
+
+export interface PlayerState {
+	status: PlayStatus;
+	trackId: number | null;
+	positionMs: number;
+	durationMs: number;
+	volume: number;
+	queue: number[];
+}
+
+export interface PlayerApi {
+	state(): Promise<PlayerState>;
+	play(ids: number[], start: number): Promise<PlayerState>;
+	toggle(): Promise<PlayerState>;
+	next(): Promise<PlayerState>;
+	prev(): Promise<PlayerState>;
+	seek(ms: number): Promise<PlayerState>;
+	volume(v: number): Promise<PlayerState>;
+}
+
 export interface Api {
 	device(): Promise<DeviceStatus>;
 	collection(): Promise<Album[]>;
+	player: PlayerApi;
 }
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -83,6 +105,7 @@ function album(artist: string, title: string, year: number, genre: string, songs
 		genre,
 		hue: hash(artist + title) % 360,
 		tracks: songs.map((t, i) => ({
+			id: hash(artist + title + t),
 			disc: Math.floor(i / per) + 1,
 			n: (i % per) + 1,
 			title: t,
@@ -106,7 +129,79 @@ const MOCK_COLLECTION: Album[] = [
 	album('webcage', 'peer2peer', 2024, 'Hyperpop', ['Self-esteem', 'Twitterthreads', 'Undermyskin', 'Settings app', 'Actor', 'Stuck', 'Groupie', 'No plan', 'Fall right thru', 'Behavior', 'Head in the clouds'], false)
 ];
 
+/** A pretend player for the mock backend: keeps time with the wall clock. */
+function mockPlayer(tracks: () => Track[]): PlayerApi {
+	let st: PlayerState = { status: 'stopped', trackId: null, positionMs: 0, durationMs: 0, volume: 0.7, queue: [] };
+	let startedAt = 0;
+	let basePos = 0;
+	const dur = (id: number | null) => tracks().find((t) => t.id === id)?.durationMs ?? 0;
+	const now = (): PlayerState => {
+		if (st.status === 'playing') {
+			st.positionMs = basePos + (Date.now() - startedAt);
+			if (st.positionMs >= st.durationMs) {
+				const i = st.queue.indexOf(st.trackId!);
+				if (i + 1 < st.queue.length) go(i + 1, 0);
+				else st = { ...st, status: 'stopped', trackId: null, positionMs: 0, durationMs: 0 };
+			}
+		}
+		return { ...st };
+	};
+	const go = (i: number, pos: number) => {
+		st.trackId = st.queue[i];
+		st.durationMs = dur(st.trackId);
+		st.positionMs = basePos = pos;
+		startedAt = Date.now();
+		st.status = 'playing';
+	};
+	return {
+		async state() {
+			return now();
+		},
+		async play(ids, start) {
+			st.queue = ids;
+			go(start, 0);
+			return now();
+		},
+		async toggle() {
+			now();
+			if (st.status === 'playing') {
+				st.status = 'paused';
+				basePos = st.positionMs;
+			} else if (st.trackId !== null) {
+				st.status = 'playing';
+				startedAt = Date.now();
+			}
+			return now();
+		},
+		async next() {
+			const i = st.queue.indexOf(st.trackId!);
+			if (i >= 0 && i + 1 < st.queue.length) go(i + 1, 0);
+			return now();
+		},
+		async prev() {
+			const i = st.queue.indexOf(st.trackId!);
+			if (i >= 0) go(st.positionMs < 3000 && i > 0 ? i - 1 : i, 0);
+			return now();
+		},
+		async seek(ms) {
+			if (st.trackId !== null) {
+				const paused = st.status === 'paused';
+				basePos = ms;
+				startedAt = Date.now();
+				st.positionMs = ms;
+				if (paused) st.status = 'paused';
+			}
+			return now();
+		},
+		async volume(v) {
+			st.volume = v;
+			return now();
+		}
+	};
+}
+
 const mock: Api = {
+	player: mockPlayer(() => MOCK_COLLECTION.flatMap((a) => a.tracks)),
 	async device() {
 		return {
 			connected: true,
@@ -125,7 +220,23 @@ const mock: Api = {
 
 // ------------------------------------------------------------------ tauri
 
+const tauriPlayer: PlayerApi = {
+	state: () => call('player_state'),
+	play: (ids, start) => call('player_play', { ids, start }),
+	toggle: () => call('player_toggle'),
+	next: () => call('player_next'),
+	prev: () => call('player_prev'),
+	seek: (ms) => call('player_seek', { ms }),
+	volume: (v) => call('player_volume', { v })
+};
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+	const { invoke } = await import('@tauri-apps/api/core');
+	return invoke<T>(cmd, args);
+}
+
 const tauri: Api = {
+	player: tauriPlayer,
 	async device() {
 		const { invoke } = await import('@tauri-apps/api/core');
 		return invoke<DeviceStatus>('device_status');
@@ -140,7 +251,18 @@ const tauri: Api = {
 
 // `squirt serve` (proxied by Vite at /api) exposes the real library to a
 // plain browser during development.
+const post = async (path: string): Promise<PlayerState> => (await fetch(`/api/player/${path}`, { method: 'POST' })).json();
+
 const devApi: Api = {
+	player: {
+		state: async () => (await fetch('/api/player/state')).json(),
+		play: (ids, start) => post(`play?ids=${ids.join(',')}&start=${start}`),
+		toggle: () => post('toggle'),
+		next: () => post('next'),
+		prev: () => post('prev'),
+		seek: (ms) => post(`seek?ms=${Math.round(ms)}`),
+		volume: (v) => post(`volume?v=${v.toFixed(3)}`)
+	},
 	async device() {
 		return (await fetch('/api/device')).json();
 	},
