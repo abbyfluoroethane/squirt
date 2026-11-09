@@ -10,8 +10,8 @@
 	const SECTIONS: { kind: MediaKind; title: string; hint: string }[] = [
 		{ kind: 'music', title: 'music', hint: 'mp3, aac, flac, alac, ogg, wav' },
 		{ kind: 'video', title: 'videos', hint: 'mp4, m4v, mov, wmv, mkv' },
-		{ kind: 'picture', title: 'pictures', hint: 'jpg, png, gif, bmp; albums come from subfolders' },
-		{ kind: 'podcast', title: 'podcasts', hint: 'audio files; shows come from the album tag' }
+		{ kind: 'picture', title: 'pictures', hint: 'jpg, png, gif, bmp · subfolders become albums' },
+		{ kind: 'podcast', title: 'podcasts', hint: 'audio · the album tag names the show' }
 	];
 
 	let folders = $state<Folder[]>([]);

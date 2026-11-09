@@ -73,7 +73,7 @@
 					{info.released ? 'disconnected' : 'no zune connected'}
 				</span>
 				<p class="text-muted-foreground">
-					{info.released ? 'squirt let go of your zune, so other apps can use it.' : 'plug in your zune and unlock it.'}
+					{info.released ? 'other apps can use your zune now.' : 'plug in your zune and unlock it.'}
 				</p>
 				{#if info.released}
 					<Button size="sm" class="w-fit lowercase" disabled={busy} onclick={() => run(() => devices.connect())}>connect</Button>
@@ -138,7 +138,7 @@
 					<Button size="sm" variant="outline" class="lowercase" disabled={busy} onclick={() => run(() => devices.refresh())}>refresh library</Button>
 					<Button size="sm" variant="outline" class="lowercase" disabled={busy} onclick={() => run(() => devices.release())}>disconnect</Button>
 				</div>
-				<p class="text-xs text-muted-foreground">disconnect lets other apps use your zune without unplugging it.</p>
+				<p class="text-xs text-muted-foreground">disconnect frees your zune for other apps without unplugging it.</p>
 			</div>
 		{/if}
 		{#if error}<p class="text-xs text-destructive">{error}</p>{/if}

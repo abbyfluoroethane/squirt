@@ -127,7 +127,7 @@
 				</ScrollArea>
 			{:else}
 				<p class="text-muted-foreground">
-					{status?.lastfm.connected && status.lastfm.enabled ? 'songs you play here are scrobbled once you have heard half of them.' : 'nothing yet.'}
+					{status?.lastfm.connected && status.lastfm.enabled ? 'songs scrobble once you hear half of them.' : 'nothing yet.'}
 				</p>
 			{/if}
 		</div>
@@ -137,7 +137,7 @@
 	<section class="metro-enter flex min-w-0 flex-1 flex-col border-l pl-6" style="--i: 2">
 		<h3 class="colhead mb-2">recently played</h3>
 		{#if !status?.lastfm.connected}
-			<p class="max-w-md text-muted-foreground">connect last.fm to see what you have been listening to, here and everywhere else you scrobble.</p>
+			<p class="max-w-md text-muted-foreground">connect last.fm to see your listening history.</p>
 		{:else if profileError && !profile}
 			<p class="text-destructive">{profileError}</p>
 		{:else if profile}
@@ -168,22 +168,22 @@
 			<div class="flex flex-col gap-3">
 				<h2 class="subpivot">last.fm</h2>
 				{#if !status.lastfm.available}
-					<p class="text-xs text-muted-foreground">last.fm isn't available in this build of squirt.</p>
+					<p class="text-xs text-muted-foreground">last.fm isn't available in this build.</p>
 				{:else if !status.lastfm.connected}
 					{#if status.lastfm.authPending}
-						<p class="text-xs text-muted-foreground">approve squirt on the last.fm page that opened in your browser, then come back here.</p>
+						<p class="text-xs text-muted-foreground">approve squirt in your browser, then come back.</p>
 						<div class="flex gap-2">
 							<Button size="sm" class="lowercase" disabled={busy} onclick={finish}>i've approved it</Button>
 							<Button size="sm" variant="outline" class="lowercase" disabled={busy} onclick={connect}>open again</Button>
 						</div>
 					{:else}
-						<p class="text-xs text-muted-foreground">sign in to scrobble what you play and show your listening history.</p>
+						<p class="text-xs text-muted-foreground">sign in to scrobble what you play.</p>
 						<Button size="sm" class="w-fit lowercase" disabled={busy} onclick={connect}>connect last.fm</Button>
 					{/if}
 				{:else}
 					<p class="text-xs text-muted-foreground">signed in as <span class="text-foreground">{status.lastfm.username}</span></p>
 					<label class="flex items-center justify-between gap-3">
-						<span class="lowercase">scrobble what i play</span>
+						<span class="lowercase">scrobbling</span>
 						<Switch checked={status.lastfm.enabled} disabled={busy} onCheckedChange={(on) => run(() => social.setLastfmEnabled(on))} />
 					</label>
 					<Button size="sm" variant="outline" class="w-fit lowercase" disabled={busy} onclick={() => run(() => social.disconnect())}>disconnect</Button>
@@ -193,14 +193,14 @@
 
 			<div class="flex flex-col gap-3">
 				<h2 class="subpivot">discord</h2>
-				<p class="text-xs text-muted-foreground">show "listening to squirt" with the song and a progress bar on your discord profile.</p>
+				<p class="text-xs text-muted-foreground">show what you're playing on your discord profile.</p>
 				<label class="flex items-center justify-between gap-3">
-					<span class="lowercase">show what i'm listening to</span>
+					<span class="lowercase">show on profile</span>
 					<Switch checked={status.discord.enabled} disabled={busy} onCheckedChange={(on) => run(() => social.setDiscordEnabled(on))} />
 				</label>
 				{#if status.discord.enabled}
 					<p class="text-xs {status.discord.error ? 'text-destructive' : 'text-muted-foreground'}">
-						{status.discord.error ?? (status.discord.connected ? 'connected to discord' : 'shows up when you play something')}
+						{status.discord.error ?? (status.discord.connected ? 'connected to discord' : 'shows when you play something')}
 					</p>
 				{/if}
 			</div>

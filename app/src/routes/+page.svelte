@@ -216,16 +216,16 @@
 				</div>
 				<div class="metro-enter flex flex-col gap-2" style="--i: 2">
 					<h2 class="subpivot">mtpz keys</h2>
-					<p class="text-muted-foreground">Read from <code class="font-mono text-foreground">~/.mtpz-data</code>. Squirt does not include keys.</p>
+					<p class="text-muted-foreground">read from <code class="font-mono text-foreground">~/.mtpz-data</code>. squirt doesn't include keys.</p>
 				</div>
 				<div class="metro-enter flex flex-col gap-2" style="--i: 3">
 					<h2 class="subpivot">about</h2>
-					<p class="text-muted-foreground">squirt 0.1 · MIT license</p>
+					<p class="text-muted-foreground">squirt 0.1 · mit license</p>
 					<p class="text-xs leading-relaxed text-muted-foreground">
-						includes <button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://ffmpeg.org')}>FFmpeg</button>,
-						licensed under the <button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html')}>LGPL 2.1</button>
-						(a minimal build; <button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz')}>source</button>).
-						fonts: Selawik and IBM Plex Mono, under the SIL Open Font License.
+						includes <button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://ffmpeg.org')}>ffmpeg</button>
+						(<button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html')}>lgpl 2.1</button>,
+						<button class="underline underline-offset-2 hover:text-foreground" onclick={() => openExternal('https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz')}>source</button>)
+						and the selawik and ibm plex mono fonts (ofl).
 					</p>
 				</div>
 			</div>
