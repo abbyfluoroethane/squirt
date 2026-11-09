@@ -266,6 +266,11 @@ impl Zune {
         Ok(if d.len() == 2 { r.u16()? as u32 } else { r.u32()? })
     }
 
+    pub fn prop_u64(&mut self, handle: u32, code: u16) -> Result<u64, DeviceError> {
+        let d = self.data(op::GET_OBJECT_PROP_VALUE, &[handle, code as u32], "ObjectPropValue")?;
+        Ok(Reader::new(&d).u64()?)
+    }
+
     pub fn props_supported(&mut self, format: u16) -> Result<Vec<u16>, DeviceError> {
         let d = self.data(op::GET_OBJECT_PROPS_SUPPORTED, &[format as u32], "ObjectPropsSupported")?;
         Ok(Reader::new(&d).u16_array()?)

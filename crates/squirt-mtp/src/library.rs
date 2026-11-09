@@ -174,6 +174,14 @@ impl Zune {
         Ok(())
     }
 
+    /// Finds an already-pushed track without creating anything. Returns its handle.
+    pub fn locate_track(&mut self, storage: u32, t: &Track) -> Result<Option<u32>, DeviceError> {
+        let Some(music) = self.find_child(storage, ROOT, "Music")? else { return Ok(None) };
+        let Some(artist_dir) = self.find_child(storage, music, &safe_name(&t.album_artist))? else { return Ok(None) };
+        let Some(album_dir) = self.find_child(storage, artist_dir, &safe_name(&t.album))? else { return Ok(None) };
+        self.find_track(album_dir, t.format, &t.title, device_track_number(t).unwrap_or(0))
+    }
+
     /// Pushes one track with its artist/album objects and optional cover art
     /// (`art_jpeg`, already scaled). Art is only set when the album has none.
     pub fn push_track(

@@ -72,6 +72,16 @@ enum Cmd {
         #[arg(long)]
         keys: Option<PathBuf>,
     },
+    /// Check that files are on the device with the right size.
+    Verify {
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Delete tracks whose size on the device is wrong, so a push re-sends them.
+        #[arg(long)]
+        delete_bad: bool,
+        #[arg(long)]
+        keys: Option<PathBuf>,
+    },
     /// Delete an object by handle.
     Rm {
         handle: String,
@@ -242,6 +252,37 @@ fn main() -> Result<()> {
                 println!("merged {from:?} into {into:?}: {} objects relinked", changes.len());
             }
         }
+        Cmd::Verify { paths, delete_bad, keys } => {
+            let files = collect_audio(&paths)?;
+            let keys = load_keys(keys)?;
+            let mut z = Zune::connect(Some(&keys))?;
+            let storage = *z.storage_ids()?.first().context("no storage")?;
+            let (mut ok, mut missing, mut bad) = (0, 0, 0);
+            for f in &files {
+                let meta = TrackMeta::read(f)?;
+                let local = f.metadata()?.len();
+                match z.locate_track(storage, &meta.track)? {
+                    None => {
+                        missing += 1;
+                        println!("missing: {}", f.display());
+                    }
+                    Some(h) => {
+                        let remote = z.prop_u64(h, prop::OBJECT_SIZE)?;
+                        if remote == local {
+                            ok += 1;
+                        } else {
+                            bad += 1;
+                            println!("size mismatch ({remote} on device, {local} local): {}", f.display());
+                            if delete_bad {
+                                z.delete_object(h)?;
+                                println!("  deleted {h:#010x}");
+                            }
+                        }
+                    }
+                }
+            }
+            println!("{ok} ok, {missing} missing, {bad} wrong size");
+        }
         Cmd::Rm { handle, keys } => {
             let keys = load_keys(keys)?;
             let mut z = Zune::connect(Some(&keys))?;
@@ -404,26 +445,48 @@ fn push(paths: Vec<PathBuf>, keys: Option<PathBuf>) -> Result<()> {
     for (i, file) in files.iter().enumerate() {
         let size = file.metadata().map(|m| m.len()).unwrap_or(0);
         let base = bar.position();
-        let result = (|| -> Result<PushOutcome> {
-            let meta = TrackMeta::read(file)?;
-            bar.set_message(format!("[{}/{}] {} - {}", i + 1, files.len(), meta.track.artist, meta.track.title));
-            let key = (meta.track.album_artist.clone(), meta.track.album.clone());
-            if !art_cache.contains_key(&key) {
-                let art = match meta.art.as_deref().map(scale_art) {
-                    Some(Ok(a)) => Some(a),
-                    Some(Err(e)) => {
-                        eprintln!("{}", format!("warning: cover art for {:?} unusable: {e:#}", meta.track.album));
-                        None
+        let mut attempt = 0;
+        let result = loop {
+            let result = (|| -> Result<PushOutcome> {
+                let meta = TrackMeta::read(file)?;
+                bar.set_message(format!("[{}/{}] {} - {}", i + 1, files.len(), meta.track.artist, meta.track.title));
+                let key = (meta.track.album_artist.clone(), meta.track.album.clone());
+                if !art_cache.contains_key(&key) {
+                    let art = match meta.art.as_deref().map(scale_art) {
+                        Some(Ok(a)) => Some(a),
+                        Some(Err(e)) => {
+                            eprintln!("warning: cover art for {:?} unusable: {e:#}", meta.track.album);
+                            None
+                        }
+                        None => None,
+                    };
+                    art_cache.insert(key.clone(), art);
+                }
+                // After a reconnect, a partly written copy may be on the device.
+                if attempt > 0 {
+                    if let Some(h) = z.locate_track(storage, &meta.track)? {
+                        if z.prop_u64(h, prop::OBJECT_SIZE)? != size {
+                            z.delete_object(h)?;
+                        }
                     }
-                    None => None,
-                };
-                art_cache.insert(key.clone(), art);
+                }
+                let bytes = std::fs::read(file)?;
+                Ok(z.push_track_progress(storage, &meta.track, &bytes, art_cache[&key].as_deref(), &mut |sent| {
+                    bar.set_position(base + sent as u64)
+                })?)
+            })();
+            match result {
+                Err(e) if attempt < 3 && is_connection_error(&e) => {
+                    attempt += 1;
+                    eprintln!("connection lost ({e:#}); waiting for the Zune to come back...");
+                    bar.set_position(base);
+                    drop(z); // Release the USB interface before claiming it again.
+                    z = reconnect(&keys)?;
+                    eprintln!("reconnected; retrying {}", file.display());
+                }
+                other => break other,
             }
-            let bytes = std::fs::read(file)?;
-            Ok(z.push_track_progress(storage, &meta.track, &bytes, art_cache[&key].as_deref(), &mut |sent| {
-                bar.set_position(base + sent as u64)
-            })?)
-        })();
+        };
         bar.set_position(base + size);
         match result {
             Ok(PushOutcome::Pushed { .. }) => {
@@ -432,7 +495,7 @@ fn push(paths: Vec<PathBuf>, keys: Option<PathBuf>) -> Result<()> {
             }
             Ok(PushOutcome::AlreadyPresent { .. }) => skipped += 1,
             Err(e) => {
-                eprintln!("{}", format!("failed: {}: {e:#}", file.display()));
+                eprintln!("failed: {}: {e:#}", file.display());
                 failed.push(file.clone());
             }
         }
@@ -460,4 +523,29 @@ fn folder_art(track: &std::path::Path) -> Option<Vec<u8>> {
         let ext = p.extension().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
         names.contains(&stem.as_str()) && matches!(ext.as_str(), "jpg" | "jpeg" | "png")
     }).and_then(|p| std::fs::read(p).ok())
+}
+
+/// True for USB-level failures (disconnect, timeout), not MTP error responses.
+fn is_connection_error(e: &anyhow::Error) -> bool {
+    use squirt_mtp::device::DeviceError;
+    use squirt_mtp::transport::TransportError;
+    matches!(
+        e.downcast_ref::<DeviceError>(),
+        Some(DeviceError::Transport(TransportError::Io(_) | TransportError::Usb(_)) | DeviceError::Usb(_))
+    )
+}
+
+/// Waits up to 60 s for the Zune to reappear, then reconnects and re-authenticates.
+fn reconnect(keys: &MtpzKeys) -> Result<Zune> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        match Zune::connect(Some(keys)) {
+            Ok(z) => return Ok(z),
+            Err(e) if std::time::Instant::now() < deadline => {
+                let _ = e;
+            }
+            Err(e) => return Err(e).context("the Zune did not come back within 60 s"),
+        }
+    }
 }
