@@ -5,6 +5,10 @@
 - **Pure-Rust MTP/MTPZ over `nusb`, not libmtp.** Homebrew builds libmtp with
   `--disable-mtpz`, and Windows builds of libmtp are painful. Use a libmtp
   built from source with MTPZ turned on only as a reference to test against.
+- **License: MIT.** MTPZ is implemented clean-room: a spec is written from
+  public sources (`docs/mtpz-protocol.md`), and the code is written only
+  from that spec. Implementers must not read libmtp `mtpz.c` or other
+  GPL/LGPL sources.
 - **Keys are user-supplied** in libmtp's `.mtpz-data` format. We never ship
   or redistribute them.
 - **UI: Tauri + Svelte.** Ship ffmpeg as a sidecar for video transcoding.
@@ -20,7 +24,7 @@
    - [ ] Bulk transport: claim the interface, then send command, data and
      response containers.
    - [ ] GetDeviceInfo and OpenSession.
-   - [ ] MTPZ handshake (model on libmtp `mtpz.c`; this affects the license choice).
+   - [ ] MTPZ handshake, written clean-room from `docs/mtpz-protocol.md`.
    - [ ] GetStorageIDs and GetStorageInfo.
    - [ ] Push one MP3 with metadata.
    - [ ] Create an album object with cover art.
@@ -41,6 +45,5 @@
 
 ## Open questions
 
-- License. Porting libmtp's `mtpz.c` (LGPL-2.1+) makes that code LGPL-derived.
 - Exact MTPZ opcodes and flow. The values in `container::op` come from libmtp's
   `ptp.h` and still need checking on a real device.
