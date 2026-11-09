@@ -30,7 +30,10 @@
    - [x] GetStorageIDs and GetStorageInfo (`squirt ls`).
    - [x] Push one MP3 with metadata (`squirt push`), into
      `Music/<Album Artist>/<Album>/NN Title.mp3`, matching the Zune software layout.
-   - [ ] Create an album object with cover art.
+   - [x] Artist and album objects with cover art (`squirt push`). The Zune
+     ignores a track's Artist/Album properties unless the track links to an
+     artist object (0xDAB9) and an album object (0xDABB). See
+     `crates/squirt-mtp/src/library.rs`.
 2. **Library sync:** list, delete and dedupe on-device content; playlists.
 3. **Video:** ffmpeg presets. Zune HD: H.264 Baseline at 480x272 (720p for
    dock/TV out; check this). Classic: 320x240.

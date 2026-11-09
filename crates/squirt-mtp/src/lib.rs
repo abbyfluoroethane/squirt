@@ -12,5 +12,6 @@ pub mod container;
 pub mod dataset;
 pub mod device;
 pub mod devices;
+pub mod library;
 pub mod mtpz;
 pub mod transport;

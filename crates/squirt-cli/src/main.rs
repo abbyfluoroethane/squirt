@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use squirt_mtp::{container::op, dataset::DeviceInfo, device::{self, format, prop, PropValue, Zune}, devices, mtpz::{self, MtpzKeys}, transport::Transport};
+use squirt_mtp::{container::op, dataset::DeviceInfo, device::{self, format, prop, Zune}, library::{PushOutcome, Track}, devices, mtpz::{self, MtpzKeys}, transport::Transport};
 use std::path::PathBuf;
 
 /// Load music, video and more onto a Zune.
@@ -34,6 +34,21 @@ enum Cmd {
     /// Copy an MP3 to Music/<Artist>/<Album>/, with metadata from its tags.
     Push {
         file: PathBuf,
+        #[arg(long)]
+        keys: Option<PathBuf>,
+    },
+    /// Dump every property of an object.
+    Props {
+        handles: Vec<String>,
+        #[arg(long)]
+        keys: Option<PathBuf>,
+    },
+    /// Show the metadata Squirt would send for a file (no device needed).
+    Tags { file: PathBuf },
+    /// Save an album's cover art to a file.
+    Art {
+        album: String,
+        out: PathBuf,
         #[arg(long)]
         keys: Option<PathBuf>,
     },
@@ -131,44 +146,64 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Push { file, keys } => {
-            let track = TrackMeta::read(&file)?;
+            let meta = TrackMeta::read(&file)?;
+            let art = meta.art.as_deref().map(scale_art).transpose()?;
             let bytes = std::fs::read(&file)?;
             let keys = load_keys(keys)?;
             let mut z = Zune::connect(Some(&keys))?;
             let storage = *z.storage_ids()?.first().context("no storage")?;
-            let music = z.ensure_folder(storage, device::ROOT, "Music")?;
-            let artist_dir = z.ensure_folder(storage, music, &safe_name(&track.album_artist))?;
-            let album_dir = z.ensure_folder(storage, artist_dir, &safe_name(&track.album))?;
-            let filename = match track.track {
-                Some(n) => format!("{n:02} {}.mp3", safe_name(&track.title)),
-                None => format!("{}.mp3", safe_name(&track.title)),
-            };
-            if let Some(h) = z.find_child(storage, album_dir, &filename)? {
-                println!("already on device: {filename} ({h:#010x})");
-                return Ok(());
-            }
-            let mut props = vec![
-                (prop::OBJECT_FILE_NAME, PropValue::Str(filename.clone())),
-                (prop::NAME, PropValue::Str(track.title.clone())),
-                (prop::ARTIST, PropValue::Str(track.artist.clone())),
-                (prop::ALBUM_NAME, PropValue::Str(track.album.clone())),
-                (prop::ALBUM_ARTIST, PropValue::Str(track.album_artist.clone())),
-                (prop::DURATION, PropValue::U32(track.duration_ms)),
-            ];
-            if let Some(n) = track.track {
-                props.push((prop::TRACK, PropValue::U16(n as u16)));
-            }
-            if let Some(g) = &track.genre {
-                props.push((prop::GENRE, PropValue::Str(g.clone())));
-            }
             let t0 = std::time::Instant::now();
-            let h = z.send_object(storage, album_dir, format::MP3, &props, &bytes)?;
-            let secs = t0.elapsed().as_secs_f64();
-            println!(
-                "pushed {filename} -> {h:#010x} ({:.1} MB in {secs:.1}s, {:.1} MB/s)",
-                bytes.len() as f64 / 1e6,
-                bytes.len() as f64 / 1e6 / secs
-            );
+            match z.push_track(storage, &meta.track, &bytes, art.as_deref())? {
+                PushOutcome::AlreadyPresent { handle } => println!("already on device ({handle:#010x})"),
+                PushOutcome::Pushed { handle, album, art_set } => {
+                    let secs = t0.elapsed().as_secs_f64();
+                    println!(
+                        "pushed {} - {} -> {handle:#010x}, album {album:#010x}{} ({:.1} MB in {secs:.1}s)",
+                        meta.track.artist,
+                        meta.track.title,
+                        if art_set { ", art set" } else { "" },
+                        bytes.len() as f64 / 1e6
+                    );
+                }
+            }
+        }
+        Cmd::Props { handles, keys } => {
+            let keys = load_keys(keys)?;
+            let mut z = Zune::connect(Some(&keys))?;
+            for h in handles {
+                let h = parse_handle(&h)?;
+                println!("== {h:#010x}");
+                for (code, dt, v) in z.all_props(h)? {
+                    println!("  {code:#06x} dt {dt:#06x}  {v}");
+                }
+                if let Ok(r) = z.references(h) {
+                    let refs: Vec<String> = r.iter().map(|x| format!("{x:#010x}")).collect();
+                    println!("  references: [{}]", refs.join(", "));
+                }
+            }
+        }
+        Cmd::Tags { file } => {
+            let m = TrackMeta::read(&file)?;
+            println!("{:#?}", m.track);
+            match &m.art {
+                Some(a) => println!("cover art: {} bytes embedded, {} bytes after scaling", a.len(), scale_art(a)?.len()),
+                None => println!("cover art: none"),
+            }
+            use lofty::prelude::*;
+            let tagged = lofty::read_from_path(&file)?;
+            for tag in tagged.tags() {
+                println!("{:?}:", tag.tag_type());
+                for item in tag.items() {
+                    println!("  {:?} = {:?}", item.key(), item.value());
+                }
+            }
+        }
+        Cmd::Art { album, out, keys } => {
+            let keys = load_keys(keys)?;
+            let mut z = Zune::connect(Some(&keys))?;
+            let bytes = z.prop_bytes(parse_handle(&album)?, 0xDC86)?;
+            std::fs::write(&out, &bytes)?;
+            println!("wrote {} bytes to {}", bytes.len(), out.display());
         }
         Cmd::Rm { handle, keys } => {
             let keys = load_keys(keys)?;
@@ -201,13 +236,9 @@ fn parse_handle(s: &str) -> Result<u32> {
 }
 
 struct TrackMeta {
-    title: String,
-    artist: String,
-    album: String,
-    album_artist: String,
-    genre: Option<String>,
-    track: Option<u32>,
-    duration_ms: u32,
+    track: Track,
+    /// Embedded cover art, as stored in the file.
+    art: Option<Vec<u8>>,
 }
 
 impl TrackMeta {
@@ -219,24 +250,45 @@ impl TrackMeta {
         let get = |f: &dyn Fn(&lofty::tag::Tag) -> Option<String>| tag.and_then(f).filter(|s| !s.trim().is_empty());
         let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let artist = get(&|t| t.artist().map(|c| c.into_owned())).unwrap_or_else(|| "Unknown Artist".into());
+        let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let format = match ext.as_str() {
+            "mp3" => format::MP3,
+            "wma" => format::WMA,
+            other => anyhow::bail!("unsupported file type: .{other}"),
+        };
+        let art = tag.and_then(|t| {
+            use lofty::picture::PictureType;
+            let pics = t.pictures();
+            pics.iter()
+                .find(|p| p.pic_type() == PictureType::CoverFront)
+                .or_else(|| pics.first())
+                .map(|p| p.data().to_vec())
+        });
         Ok(Self {
-            title: get(&|t| t.title().map(|c| c.into_owned())).unwrap_or(stem),
-            album: get(&|t| t.album().map(|c| c.into_owned())).unwrap_or_else(|| "Unknown Album".into()),
-            album_artist: get(&|t| t.get_string(ItemKey::AlbumArtist).map(str::to_owned)).unwrap_or_else(|| artist.clone()),
-            artist,
-            genre: get(&|t| t.genre().map(|c| c.into_owned())),
-            track: tag.and_then(|t| t.track()),
-            duration_ms,
+            track: Track {
+                title: get(&|t| t.title().map(|c| c.into_owned())).unwrap_or(stem),
+                album: get(&|t| t.album().map(|c| c.into_owned())).unwrap_or_else(|| "Unknown Album".into()),
+                album_artist: get(&|t| t.get_string(ItemKey::AlbumArtist).map(str::to_owned))
+                    .unwrap_or_else(|| artist.clone()),
+                artist,
+                genre: get(&|t| t.genre().map(|c| c.into_owned())),
+                track_number: tag.and_then(|t| t.track()).map(|n| n as u16),
+                year: tag.and_then(|t| t.date()).map(|d| d.year as u32),
+                duration_ms,
+                format,
+                extension: ext,
+            },
+            art,
         })
     }
 }
 
-/// Makes a string safe as a device file name.
-fn safe_name(s: &str) -> String {
-    let cleaned: String = s
-        .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c })
-        .collect();
-    let trimmed = cleaned.trim().trim_end_matches('.').to_string();
-    if trimmed.is_empty() { "_".into() } else { trimmed }
+/// Scales cover art to fit within 240x240 and re-encodes it as baseline JPEG,
+/// which is what the Zune software stores.
+fn scale_art(data: &[u8]) -> Result<Vec<u8>> {
+    let img = image::load_from_memory(data).context("decoding cover art")?;
+    let img = img.resize(240, 240, image::imageops::FilterType::Lanczos3).to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 88).encode_image(&img)?;
+    Ok(out)
 }

@@ -45,7 +45,9 @@ pub mod op {
     pub const GET_OBJECT_PROPS_SUPPORTED: u16 = 0x9801;
     pub const GET_OBJECT_PROP_VALUE: u16 = 0x9803;
     pub const SET_OBJECT_PROP_VALUE: u16 = 0x9804;
+    pub const GET_OBJECT_PROP_LIST: u16 = 0x9805;
     pub const SEND_OBJECT_PROP_LIST: u16 = 0x9808;
+    pub const GET_OBJECT_REFERENCES: u16 = 0x9810;
     pub const SET_OBJECT_REFERENCES: u16 = 0x9811;
     // MTPZ / WMDRMPD vendor ops (docs/mtpz-protocol.md section 2).
     pub const WMDRMPD_SEND_APP_REQUEST: u16 = 0x9212;

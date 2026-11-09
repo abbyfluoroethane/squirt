@@ -93,6 +93,60 @@ impl PropValue {
     }
 }
 
+/// A decoded property value of any MTP datatype.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AnyValue {
+    Int(i128),
+    Str(String),
+    Array(Vec<i128>),
+    U128([u8; 16]),
+}
+
+impl std::fmt::Display for AnyValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Int(v) => write!(f, "{v} ({v:#x})"),
+            Self::Str(s) => write!(f, "{s:?}"),
+            Self::Array(a) if a.len() > 32 => write!(f, "[{} items]", a.len()),
+            Self::Array(a) => write!(f, "{a:?}"),
+            Self::U128(b) => write!(f, "{}", b.iter().rev().map(|x| format!("{x:02x}")).collect::<String>()),
+        }
+    }
+}
+
+fn read_scalar(r: &mut Reader, dt: u16) -> Result<i128, Truncated> {
+    Ok(match dt & 0x0fff {
+        0x1 => r.u8()? as i8 as i128,
+        0x2 => r.u8()? as i128,
+        0x3 => r.u16()? as i16 as i128,
+        0x4 => r.u16()? as i128,
+        0x5 => r.u32()? as i32 as i128,
+        0x6 => r.u32()? as i128,
+        0x7 => r.u64()? as i64 as i128,
+        0x8 => r.u64()? as i128,
+        _ => return Err(Truncated(0)),
+    })
+}
+
+/// Reads one value of MTP datatype `dt`.
+pub fn read_value(r: &mut Reader, dt: u16) -> Result<AnyValue, Truncated> {
+    Ok(match dt {
+        0xFFFF => AnyValue::Str(r.string()?),
+        0x0009 | 0x000A => {
+            let mut b = [0u8; 16];
+            for x in b.iter_mut() {
+                *x = r.u8()?;
+            }
+            AnyValue::U128(b)
+        }
+        d if d & 0x4000 != 0 => {
+            let n = r.u32()?;
+            AnyValue::Array((0..n).map(|_| read_scalar(r, d)).collect::<Result<_, _>>()?)
+        }
+        d => AnyValue::Int(read_scalar(r, d)?),
+    })
+}
+
 /// Encodes an ObjectPropList dataset (MTP 1.1 section 5.4.3).
 pub fn encode_prop_list(handle: u32, props: &[(u16, PropValue)]) -> Vec<u8> {
     let mut out = (props.len() as u32).to_le_bytes().to_vec();
@@ -129,6 +183,11 @@ impl Zune {
             }
         }
         Ok(z)
+    }
+
+    /// The underlying transport, for modules that add device operations.
+    pub(crate) fn transport(&mut self) -> &mut Transport {
+        &mut self.t
     }
 
     fn data(&mut self, code: u16, params: &[u32], what: &'static str) -> Result<Vec<u8>, DeviceError> {
@@ -203,6 +262,33 @@ impl Zune {
         let handle = *reply.params.get(2).ok_or(DeviceError::Unexpected("no handle from SendObjectPropList"))?;
         self.t.transact(op::SEND_OBJECT, &[], Some(bytes))?;
         Ok(handle)
+    }
+
+    /// All properties of one object, via GetObjectPropList (all props, depth 0).
+    pub fn all_props(&mut self, handle: u32) -> Result<Vec<(u16, u16, AnyValue)>, DeviceError> {
+        let d = self.data(op::GET_OBJECT_PROP_LIST, &[handle, 0, 0xFFFF_FFFF, 0, 0], "ObjectPropList")?;
+        let mut r = Reader::new(&d);
+        let n = r.u32()?;
+        let mut out = Vec::new();
+        for _ in 0..n {
+            r.u32()?; // handle
+            let code = r.u16()?;
+            let dt = r.u16()?;
+            out.push((code, dt, read_value(&mut r, dt)?));
+        }
+        Ok(out)
+    }
+
+    /// Raw bytes of an array-of-u8 property (for example album art, 0xDC86).
+    pub fn prop_bytes(&mut self, handle: u32, code: u16) -> Result<Vec<u8>, DeviceError> {
+        let d = self.data(op::GET_OBJECT_PROP_VALUE, &[handle, code as u32], "ObjectPropValue")?;
+        let mut r = Reader::new(&d);
+        let n = r.u32()? as usize;
+        Ok((0..n).map(|_| r.u8()).collect::<Result<_, _>>()?)
+    }
+
+    pub fn references(&mut self, handle: u32) -> Result<Vec<u32>, DeviceError> {
+        self.u32_array(op::GET_OBJECT_REFERENCES, &[handle], "ObjectReferences")
     }
 
     /// Finds a child of `parent` by file name.
