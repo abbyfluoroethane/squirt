@@ -20,7 +20,18 @@
 	const PIVOTS = ['collection', 'device', 'social', 'settings'] as const;
 	const SUBPIVOTS = ['music', 'videos', 'pictures', 'podcasts'] as const;
 
-	let pivot = $state<(typeof PIVOTS)[number]>('collection');
+	type PivotName = (typeof PIVOTS)[number];
+	let pivot = $state<PivotName>('collection');
+	// Which side new pages slide in from: +1 when moving to a pivot further
+	// right, -1 when moving left. Set before the page changes so the entering
+	// content uses it.
+	let pivotDir = $state(1);
+	function setPivot(p: PivotName) {
+		if (p === pivot) return;
+		pivotDir = PIVOTS.indexOf(p) > PIVOTS.indexOf(pivot) ? 1 : -1;
+		pivot = p;
+	}
+	const enterOffset = $derived(`--enter-offset: ${pivotDir * 80}px`);
 	let subpivot = $state<(typeof SUBPIVOTS)[number]>('music');
 
 	let device = $state<DeviceStatus | null>(null);
@@ -44,8 +55,8 @@
 			volume = player.volume;
 			await reload(c.api);
 			// Deep links for development: #device, #now-playing.
-			if (location.hash === '#device') pivot = 'device';
-			if (location.hash === '#social') pivot = 'social';
+			if (location.hash === '#device') setPivot('device');
+			if (location.hash === '#social') setPivot('social');
 			if (location.hash === '#now-playing') fullscreen = true;
 			// Notice the Zune being plugged in or out; reload what's on it when it changes.
 			timers.push(
@@ -67,7 +78,7 @@
 	/** Shows an artist (and optionally one of their albums) in the collection. */
 	async function show(artistName: string, albumId?: string) {
 		fullscreen = false;
-		pivot = 'collection';
+		setPivot('collection');
 		subpivot = 'music';
 		artist = artistName;
 		selectedId = albumId ?? null;
@@ -149,18 +160,25 @@
 			{#if backend === 'mock'}<span class="font-normal text-faint">· browser preview, mock data (run <code class="font-mono">squirt serve</code> for your library)</span>
 			{:else if backend === 'dev-api'}<span class="font-normal text-faint">· browser preview, your library</span>{/if}
 		</div>
-		<Pivot items={PIVOTS} bind:value={pivot} />
-		{#if pivot === 'collection' || pivot === 'device'}
-			<Pivot items={SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={['videos', 'pictures', 'podcasts']} />
-		{/if}
+		<Pivot items={PIVOTS} bind:value={() => pivot, setPivot} />
+		{#key pivot}
+			{#if pivot === 'collection' || pivot === 'device'}
+				<div class="metro-enter" style={enterOffset}>
+					<Pivot items={SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={['videos', 'pictures', 'podcasts']} />
+				</div>
+			{/if}
+		{/key}
 	</header>
 
-	<main class="flex min-h-0 flex-1 gap-0 px-6 pt-5 pb-3">
+	<main class="flex min-h-0 flex-1 px-6 pt-5 pb-3">
+		{#key pivot}
+		<!-- Each pivot's page slides in from the side it lies on (see setPivot). -->
+		<div class="flex min-h-0 min-w-0 flex-1 gap-0" style={enterOffset}>
 		{#if pivot === 'social'}
 			{#if api}<Social social={api.social} />{/if}
 		{:else if pivot === 'settings'}
 			<section class="flex max-w-xl flex-col gap-8">
-				<div class="flex flex-col gap-3">
+				<div class="metro-enter flex flex-col gap-3" style="--i: 1">
 					<h2 class="subpivot">theme</h2>
 					<div class="flex gap-2">
 						{#each THEMES as t (t)}
@@ -168,19 +186,19 @@
 						{/each}
 					</div>
 				</div>
-				<div class="flex flex-col gap-2">
+				<div class="metro-enter flex flex-col gap-2" style="--i: 2">
 					<h2 class="subpivot">mtpz keys</h2>
 					<p class="text-muted-foreground">Read from <code class="font-mono text-foreground">~/.mtpz-data</code>. Squirt does not include keys.</p>
 				</div>
 			</section>
 		{:else if pivot === 'device' && !device?.connected}
-			<section class="flex flex-col gap-2">
+			<section class="metro-enter flex flex-col gap-2" style="--i: 1">
 				<p class="subpivot text-muted-foreground">{device?.problem ? 'your zune is connected but squirt cannot use it' : 'connect your zune'}</p>
 				{#if device?.problem}<p class="text-muted-foreground">{device.problem}</p>{/if}
 			</section>
 		{:else}
 			<!-- artists -->
-			<section class="flex w-52 shrink-0 flex-col">
+			<section class="metro-enter flex w-52 shrink-0 flex-col" style="--i: 1">
 				<h3 class="colhead mb-2">artist</h3>
 				<ScrollArea class="min-h-0 flex-1 pr-3">
 					<button class="row {artist === null ? 'row-on' : ''}" onclick={() => (artist = null)}>all</button>
@@ -191,7 +209,7 @@
 			</section>
 
 			<!-- albums -->
-			<section class="flex min-w-0 flex-1 flex-col border-l pl-4">
+			<section class="metro-enter flex min-w-0 flex-1 flex-col border-l pl-4" style="--i: 2">
 				<h3 class="colhead mb-2">album</h3>
 				<ScrollArea class="min-h-0 flex-1 pr-3">
 					{#each shownAlbums as al (al.id)}
@@ -211,7 +229,7 @@
 			</section>
 
 			<!-- songs -->
-			<section class="flex w-[44%] shrink-0 flex-col border-l pl-4">
+			<section class="metro-enter flex w-[44%] shrink-0 flex-col border-l pl-4" style="--i: 3">
 				{#if selected}
 					<div class="mb-4 flex items-end gap-4">
 						<AlbumArt hue={selected.hue} size={96} src={selected.art ?? undefined} />
@@ -262,6 +280,8 @@
 				{/if}
 			</section>
 		{/if}
+		</div>
+		{/key}
 	</main>
 
 	<footer class="grid h-24 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-6 border-t px-6">

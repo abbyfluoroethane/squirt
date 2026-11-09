@@ -87,7 +87,7 @@
 
 <div class="flex min-h-0 flex-1 gap-8">
 	<!-- you -->
-	<section class="flex w-64 shrink-0 flex-col gap-6">
+	<section class="metro-enter flex w-64 shrink-0 flex-col gap-6" style="--i: 1">
 		{#if status?.lastfm.connected}
 			<div class="flex flex-col gap-1">
 				<h3 class="colhead">you</h3>
@@ -134,7 +134,7 @@
 	</section>
 
 	<!-- recently played -->
-	<section class="flex min-w-0 flex-1 flex-col border-l pl-6">
+	<section class="metro-enter flex min-w-0 flex-1 flex-col border-l pl-6" style="--i: 2">
 		<h3 class="colhead mb-2">recently played</h3>
 		{#if !status?.lastfm.connected}
 			<p class="max-w-md text-muted-foreground">connect last.fm to see what you have been listening to, here and everywhere else you scrobble.</p>
@@ -163,7 +163,7 @@
 	</section>
 
 	<!-- connections -->
-	<section class="flex w-80 shrink-0 flex-col gap-8 border-l pl-6">
+	<section class="metro-enter flex w-80 shrink-0 flex-col gap-8 border-l pl-6" style="--i: 3">
 		{#if status}
 			<div class="flex flex-col gap-3">
 				<h2 class="subpivot">last.fm</h2>
