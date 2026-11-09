@@ -122,10 +122,12 @@
 	<!-- In the app, the header doubles as the window's title bar (macOS draws
 	     the traffic lights over its top-left corner). -->
 	<header class="flex shrink-0 flex-col gap-3 px-6 {macApp ? 'pt-0' : 'pt-5'}" data-tauri-drag-region>
-		<!-- On macOS the brand row shares the title bar with the traffic lights,
-		     which are centred 16pt from the top: so the row is 32pt tall and
-		     starts just right of them. -->
-		<div class="flex items-center gap-2.5 text-xs font-semibold tracking-wide text-muted-foreground lowercase {macApp ? 'pointer-events-none -mb-1 h-8 pl-[54px]' : ''}">
+		<!-- On macOS the brand row shares the title bar with the traffic lights.
+		     Positions measured from screenshots: the lights are centred ~15.5pt
+		     down, and the row needs a 3.5pt nudge to meet them; the left padding
+		     leaves a gap after the green light about as wide as the gaps between
+		     the lights. -->
+		<div class="flex items-center gap-2.5 text-xs font-semibold tracking-wide text-muted-foreground lowercase {macApp ? 'pointer-events-none relative top-[3.5px] -mb-1 h-8 pl-[66px]' : ''}">
 			<span class="zune-gradient inline-block size-3.5"></span><span class="text-[0.95rem] leading-none">squirt</span>
 			{#if backend === 'mock'}<span class="font-normal text-faint">· browser preview, mock data (run <code class="font-mono">squirt serve</code> for your library)</span>
 			{:else if backend === 'dev-api'}<span class="font-normal text-faint">· browser preview, your library</span>{/if}
