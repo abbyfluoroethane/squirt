@@ -217,6 +217,12 @@ impl Zune {
         Ok((0..n).map(|_| r.u32()).collect::<Result<_, _>>()?)
     }
 
+    /// Sets a device property (SetDevicePropValue) to an encoded value.
+    pub fn set_device_prop(&mut self, code: u16, value: &[u8]) -> Result<(), DeviceError> {
+        self.t.transact(op::SET_DEVICE_PROP_VALUE, &[code as u32], Some(value))?;
+        Ok(())
+    }
+
     /// Runs a read-only operation and returns its raw data phase (for debugging).
     pub fn raw(&mut self, code: u16, params: &[u32]) -> Result<Vec<u8>, DeviceError> {
         Ok(self.t.transact(code, params, None)?.data.unwrap_or_default())

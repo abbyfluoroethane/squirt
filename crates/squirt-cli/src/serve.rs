@@ -15,6 +15,25 @@ fn query(url: &str, key: &str) -> Option<String> {
     })
 }
 
+/// Decodes %XX escapes and '+' in a query value.
+fn url_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
+                out.push(v);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(if b[i] == b'+' { b' ' } else { b[i] });
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn json_response<T: serde::Serialize>(v: &T) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(serde_json::to_string(v).unwrap_or_else(|_| "null".into()))
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
@@ -32,6 +51,14 @@ fn handle(svc: &Service, req: Request) {
         "/api/health" => json_response(&json!({ "ok": true })),
         "/api/collection" => svc.collection().map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/device" => json_response(&svc.device_status()),
+        "/api/device/info" => json_response(&svc.device_info()),
+        "/api/device/rename" => {
+            let name = q("name").map(|n| url_decode(&n)).unwrap_or_default();
+            svc.device_rename(&name).map(|v| json_response(&v)).unwrap_or_else(error)
+        }
+        "/api/device/refresh" => svc.device_refresh().map(|v| json_response(&v)).unwrap_or_else(error),
+        "/api/device/release" => json_response(&svc.device_release()),
+        "/api/device/connect" => json_response(&svc.device_connect()),
         "/api/device/collection" => svc.device_collection().map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/player/state" => json_response(&svc.player_state()),
         "/api/player/play" => {

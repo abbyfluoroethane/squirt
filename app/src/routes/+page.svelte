@@ -15,10 +15,12 @@
 	import NowPlaying from '$lib/components/zune/NowPlaying.svelte';
 	import SquirtMark from '$lib/components/zune/SquirtMark.svelte';
 	import Social from '$lib/components/zune/Social.svelte';
+	import DeviceInfo from '$lib/components/zune/DeviceInfo.svelte';
 	import { tick } from 'svelte';
 
 	const PIVOTS = ['collection', 'device', 'social', 'settings'] as const;
 	const SUBPIVOTS = ['music', 'videos', 'pictures', 'podcasts'] as const;
+	const DEVICE_SUBPIVOTS = ['info', ...SUBPIVOTS] as const;
 
 	type PivotName = (typeof PIVOTS)[number];
 	let pivot = $state<PivotName>('collection');
@@ -29,10 +31,13 @@
 	function setPivot(p: PivotName) {
 		if (p === pivot) return;
 		pivotDir = PIVOTS.indexOf(p) > PIVOTS.indexOf(pivot) ? 1 : -1;
+		// The device pivot opens on its info page; info only exists there.
+		if (p === 'device') subpivot = 'info';
+		else if (subpivot === 'info') subpivot = 'music';
 		pivot = p;
 	}
 	const enterOffset = $derived(`--enter-offset: ${pivotDir * 80}px`);
-	let subpivot = $state<(typeof SUBPIVOTS)[number]>('music');
+	let subpivot = $state<(typeof DEVICE_SUBPIVOTS)[number]>('music');
 
 	let device = $state<DeviceStatus | null>(null);
 	let albums = $state<Album[]>([]);
@@ -164,7 +169,7 @@
 		{#key pivot}
 			{#if pivot === 'collection' || pivot === 'device'}
 				<div class="metro-enter" style={enterOffset}>
-					<Pivot items={SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={['videos', 'pictures', 'podcasts']} />
+					<Pivot items={pivot === 'device' ? DEVICE_SUBPIVOTS : SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={['videos', 'pictures', 'podcasts']} />
 				</div>
 			{/if}
 		{/key}
@@ -191,6 +196,8 @@
 					<p class="text-muted-foreground">Read from <code class="font-mono text-foreground">~/.mtpz-data</code>. Squirt does not include keys.</p>
 				</div>
 			</section>
+		{:else if pivot === 'device' && subpivot === 'info'}
+			{#if api}<DeviceInfo devices={api.devices} onChange={async () => { if (api) { device = await api.device(); await reload(api); } }} />{/if}
 		{:else if pivot === 'device' && !device?.connected}
 			<section class="metro-enter flex flex-col gap-2" style="--i: 1">
 				<p class="subpivot text-muted-foreground">{device?.problem ? 'your zune is connected but squirt cannot use it' : 'connect your zune'}</p>

@@ -3,7 +3,7 @@
 
 mod media;
 
-use squirt_service::{AlbumDto, DeviceStatus, LastFmProfile, PlayerStateDto, Service, SocialStatus};
+use squirt_service::{AlbumDto, DeviceInfoDto, DeviceStatus, LastFmProfile, PlayerStateDto, Service, SocialStatus};
 use std::sync::Arc;
 use tauri::http::Response;
 use tauri::{Manager, State};
@@ -21,6 +21,31 @@ fn collection(svc: Svc) -> Result<Vec<AlbumDto>, String> {
 #[tauri::command(async)]
 fn device_status(svc: Svc) -> DeviceStatus {
     svc.device_status()
+}
+
+#[tauri::command(async)]
+fn device_info(svc: Svc) -> DeviceInfoDto {
+    svc.device_info()
+}
+
+#[tauri::command(async)]
+fn device_rename(svc: Svc, name: String) -> Result<DeviceInfoDto, String> {
+    svc.device_rename(&name)
+}
+
+#[tauri::command(async)]
+fn device_refresh(svc: Svc) -> Result<DeviceInfoDto, String> {
+    svc.device_refresh()
+}
+
+#[tauri::command(async)]
+fn device_release(svc: Svc) -> DeviceInfoDto {
+    svc.device_release()
+}
+
+#[tauri::command(async)]
+fn device_connect(svc: Svc) -> DeviceInfoDto {
+    svc.device_connect()
 }
 
 #[tauri::command(async)]
@@ -130,6 +155,11 @@ pub fn run() {
             collection,
             device_status,
             device_collection,
+            device_info,
+            device_rename,
+            device_refresh,
+            device_release,
+            device_connect,
             player_state,
             player_play,
             player_toggle,

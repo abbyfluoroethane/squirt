@@ -134,8 +134,36 @@ export async function openExternal(url: string) {
 	}
 }
 
+export interface DeviceInfo {
+	connected: boolean;
+	/** True after "disconnect", until replugged or reconnected. */
+	released: boolean;
+	name: string;
+	manufacturer: string;
+	model: string;
+	firmware: string;
+	serial: string;
+	battery: number | null;
+	capacity: number;
+	free: number;
+	usage: Usage;
+	tracks: number;
+	albums: number;
+	artists: number;
+}
+
+export interface DeviceApi {
+	info(): Promise<DeviceInfo>;
+	rename(name: string): Promise<DeviceInfo>;
+	refresh(): Promise<DeviceInfo>;
+	/** Let go of the device so other tools can use it. */
+	release(): Promise<DeviceInfo>;
+	connect(): Promise<DeviceInfo>;
+}
+
 export interface Api {
 	social: SocialApi;
+	devices: DeviceApi;
 	device(): Promise<DeviceStatus>;
 	collection(): Promise<Album[]>;
 	/** The music on the Zune itself (empty when none is connected). */
@@ -314,8 +342,45 @@ function mockSocial(): SocialApi {
 	};
 }
 
+function mockDevices(): DeviceApi {
+	let info: DeviceInfo = {
+		connected: true,
+		released: false,
+		name: "Abby's Zune HD",
+		manufacturer: 'Microsoft',
+		model: 'Zune HD',
+		firmware: '04.05.00114.00',
+		serial: 'ae55b7c9-1b54-40e4-aa77-227e4bb73080',
+		battery: 82,
+		capacity: 15.5 * GB,
+		free: 12.6 * GB,
+		usage: { music: 2.6 * GB, videos: 0, pictures: 0.2 * GB, other: 0.1 * GB },
+		tracks: 372,
+		albums: 46,
+		artists: 19
+	};
+	const ret = async () => structuredClone(info);
+	return {
+		info: ret,
+		async rename(name) {
+			info.name = name;
+			return ret();
+		},
+		refresh: ret,
+		async release() {
+			info = { ...info, connected: false, released: true };
+			return ret();
+		},
+		async connect() {
+			info = { ...info, connected: true, released: false };
+			return ret();
+		}
+	};
+}
+
 const mock: Api = {
 	social: mockSocial(),
+	devices: mockDevices(),
 	player: mockPlayer(() => MOCK_COLLECTION.flatMap((a) => a.tracks)),
 	async device() {
 		return {
@@ -370,6 +435,13 @@ const tauriSocial: SocialApi = {
 
 const tauri: Api = {
 	social: tauriSocial,
+	devices: {
+		info: () => call('device_info'),
+		rename: (name) => call('device_rename', { name }),
+		refresh: () => call('device_refresh'),
+		release: () => call('device_release'),
+		connect: () => call('device_connect')
+	},
 	player: tauriPlayer,
 	device: () => call<DeviceStatus>('device_status'),
 	collection: async () => tauriArt(await call<Album[]>('collection')),
@@ -391,6 +463,13 @@ async function devPost<T>(path: string): Promise<T> {
 }
 
 const devApi: Api = {
+	devices: {
+		info: async () => (await fetch('/api/device/info')).json(),
+		rename: (name) => devPost(`device/rename?name=${encodeURIComponent(name)}`),
+		refresh: () => devPost('device/refresh'),
+		release: () => devPost('device/release'),
+		connect: () => devPost('device/connect')
+	},
 	social: {
 		status: () => devPost('social/status'),
 		beginAuth: async () => (await devPost<{ url: string }>('social/lastfm/begin')).url,

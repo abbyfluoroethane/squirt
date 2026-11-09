@@ -109,6 +109,9 @@ struct DeviceLibrary {
 
 #[derive(Default)]
 struct DeviceSlot {
+    /// Set by "disconnect": stay off the device until it is unplugged or the
+    /// user connects again.
+    released: bool,
     zune: Option<Zune>,
     storage: u32,
     status: DeviceStatus,
@@ -123,6 +126,27 @@ fn hue(s: &str) -> u32 {
 
 fn norm(s: &str) -> String {
     s.trim().to_lowercase()
+}
+
+/// Everything the device info page shows.
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInfoDto {
+    pub connected: bool,
+    /// True after "disconnect", until replugged or reconnected.
+    pub released: bool,
+    pub name: String,
+    pub manufacturer: String,
+    pub model: String,
+    pub firmware: String,
+    pub serial: String,
+    pub battery: Option<u8>,
+    pub capacity: u64,
+    pub free: u64,
+    pub usage: Usage,
+    pub tracks: usize,
+    pub albums: usize,
+    pub artists: usize,
 }
 
 // ---------------------------------------------------------------- service
@@ -227,9 +251,15 @@ impl Service {
         if dev.zune.is_none() {
             let present = squirt_mtp::devices::find_zunes().map(|z| !z.is_empty()).unwrap_or(false);
             if !present {
+                // Unplugged: forget a manual disconnect, so replugging connects.
+                dev.released = false;
                 dev.status = DeviceStatus::default();
                 dev.library = None;
                 dev.art.clear();
+                return dev.status.clone();
+            }
+            if dev.released {
+                dev.status = DeviceStatus::default();
                 return dev.status.clone();
             }
             let keys = match MtpzKeys::default_path().map(|p| MtpzKeys::load(&p)) {
@@ -285,6 +315,95 @@ impl Service {
             }
         }
         dev.status.clone()
+    }
+
+    /// Details for the device info page.
+    pub fn device_info(&self) -> DeviceInfoDto {
+        let status = self.device_status();
+        let mut dev = self.device.lock().unwrap();
+        let released = dev.released;
+        let (tracks, albums, artists) = dev
+            .library
+            .as_ref()
+            .map(|l| {
+                let artists: HashSet<String> = l.tracks.iter().map(|t| norm(&t.album_artist)).collect();
+                (l.tracks.len(), l.albums.len(), artists.len())
+            })
+            .unwrap_or_default();
+        let Some(z) = dev.zune.as_mut() else {
+            return DeviceInfoDto { released, ..Default::default() };
+        };
+        // Battery level (MTP device property 0x5001), 0-100.
+        let battery = z.raw(0x1015, &[0x5001]).ok().and_then(|d| d.first().copied()).filter(|&b| b <= 100);
+        DeviceInfoDto {
+            connected: status.connected,
+            released,
+            name: status.name,
+            manufacturer: z.info.manufacturer.clone(),
+            model: status.model,
+            firmware: status.firmware,
+            serial: z.info.serial_number.clone(),
+            battery,
+            capacity: status.capacity,
+            free: status.free,
+            usage: status.usage,
+            tracks,
+            albums,
+            artists,
+        }
+    }
+
+    /// Renames the device (its friendly name, MTP property 0xD402).
+    pub fn device_rename(&self, name: &str) -> Result<DeviceInfoDto> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 64 {
+            return Err("the name must be 1 to 64 characters".into());
+        }
+        {
+            let mut dev = self.device.lock().unwrap();
+            let z = dev.zune.as_mut().ok_or("no device connected")?;
+            z.set_device_prop(0xD402, &squirt_mtp::dataset::encode_string(name)).map_err(err)?;
+            dev.checked = None; // Re-read the status, including the name.
+        }
+        Ok(self.device_info())
+    }
+
+    /// Re-reads the device's music library.
+    pub fn device_refresh(&self) -> Result<DeviceInfoDto> {
+        {
+            let mut dev = self.device.lock().unwrap();
+            let storage = dev.storage;
+            let z = dev.zune.as_mut().ok_or("no device connected")?;
+            let tracks = z.music_tracks().map_err(err)?;
+            let albums = z.album_objects(storage).map_err(err)?;
+            dev.library = Some(DeviceLibrary { tracks, albums });
+            dev.art.clear();
+            dev.checked = None;
+        }
+        Ok(self.device_info())
+    }
+
+    /// Lets go of the device (so other tools can use it) until it is
+    /// replugged or [`Service::device_connect`] is called.
+    pub fn device_release(&self) -> DeviceInfoDto {
+        {
+            let mut dev = self.device.lock().unwrap();
+            dev.zune = None; // Dropping the connection releases the USB interface.
+            dev.library = None;
+            dev.art.clear();
+            dev.released = true;
+            dev.checked = None;
+        }
+        self.device_info()
+    }
+
+    pub fn device_connect(&self) -> DeviceInfoDto {
+        {
+            let mut dev = self.device.lock().unwrap();
+            dev.released = false;
+            dev.checked = None;
+        }
+        self.device_info()
     }
 
     /// The device's music as albums. Reads the device on first call after connecting.
