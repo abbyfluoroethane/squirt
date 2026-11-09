@@ -8,9 +8,13 @@
 	let {
 		state,
 		title,
-		subtitle,
+		artist,
+		album,
 		art,
 		hue = 0,
+		onArtist,
+		onAlbum,
+		onArt,
 		onToggle,
 		onPrev,
 		onNext,
@@ -18,9 +22,13 @@
 	}: {
 		state: PlayerState;
 		title?: string;
-		subtitle?: string;
+		artist?: string;
+		album?: string;
 		art?: string;
 		hue?: number;
+		onArtist: () => void;
+		onAlbum: () => void;
+		onArt: () => void;
 		onToggle: () => void;
 		onPrev: () => void;
 		onNext: () => void;
@@ -46,7 +54,9 @@
 		<button class="round size-8" onclick={onNext} disabled={!active} aria-label="next"><SkipForward size={14} weight="fill" /></button>
 	</div>
 	{#if active}
-		<AlbumArt {hue} size={56} src={art} />
+		<button class="shrink-0 transition-opacity hover:opacity-80" onclick={onArt} aria-label="open now playing" title="now playing">
+			<AlbumArt {hue} size={56} src={art} />
+		</button>
 	{:else}
 		<div class="size-14 shrink-0 bg-muted"></div>
 	{/if}
@@ -54,7 +64,9 @@
 		<div class="flex min-w-0 items-baseline gap-2">
 			{#if active}
 				<span class="truncate">{title}</span>
-				<span class="truncate text-xs text-muted-foreground">{subtitle}</span>
+				<span class="flex min-w-0 items-baseline gap-1 truncate text-xs text-muted-foreground">
+					<button class="link truncate" onclick={onArtist}>{artist}</button>·<button class="link truncate" onclick={onAlbum}>{album}</button>
+				</span>
 			{:else}
 				<span class="text-muted-foreground lowercase">nothing playing</span>
 			{/if}
@@ -87,5 +99,10 @@
 	}
 	.round:disabled {
 		opacity: 0.3;
+	}
+	.link:hover {
+		color: var(--foreground);
+		text-decoration: underline;
+		text-underline-offset: 2px;
 	}
 </style>

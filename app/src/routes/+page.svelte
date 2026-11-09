@@ -12,6 +12,8 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { Check, Play, SpeakerHigh, SpeakerSimpleNone } from 'phosphor-svelte';
 	import ZuneHD from '$lib/components/zune/ZuneHD.svelte';
+	import NowPlaying from '$lib/components/zune/NowPlaying.svelte';
+	import { tick } from 'svelte';
 
 	const PIVOTS = ['collection', 'device', 'settings'] as const;
 	const SUBPIVOTS = ['music', 'videos', 'pictures', 'podcasts'] as const;
@@ -21,6 +23,8 @@
 
 	let device = $state<DeviceStatus | null>(null);
 	let albums = $state<Album[]>([]);
+	let deviceAlbums = $state<Album[]>([]);
+	let fullscreen = $state(false);
 	let artist = $state<string | null>(null);
 	let selectedId = $state<string | null>(null);
 
@@ -34,21 +38,47 @@
 			const c = await connect();
 			api = c.api;
 			backend = c.backend;
-			[device, albums, player] = await Promise.all([c.api.device(), c.api.collection(), c.api.player.state()]);
+			[device, player] = await Promise.all([c.api.device(), c.api.player.state()]);
 			volume = player.volume;
-			// Notice the Zune being plugged in or out.
-			timers.push(setInterval(async () => (device = await c.api.device()), 5000));
+			await reload(c.api);
+			// Deep links for development: #device, #now-playing.
+			if (location.hash === '#device') pivot = 'device';
+			if (location.hash === '#now-playing') fullscreen = true;
+			// Notice the Zune being plugged in or out; reload what's on it when it changes.
+			timers.push(
+				setInterval(async () => {
+					const was = device?.connected;
+					device = await c.api.device();
+					if (device.connected !== was) await reload(c.api);
+				}, 3000)
+			);
 			timers.push(setInterval(async () => (player = await c.api.player.state()), 500));
 		})();
 		return () => timers.forEach(clearInterval);
 	});
+
+	async function reload(a: Api) {
+		[albums, deviceAlbums] = await Promise.all([a.collection(), a.deviceCollection()]);
+	}
+
+	/** Shows an artist (and optionally one of their albums) in the collection. */
+	async function show(artistName: string, albumId?: string) {
+		fullscreen = false;
+		pivot = 'collection';
+		subpivot = 'music';
+		artist = artistName;
+		selectedId = albumId ?? null;
+		await tick();
+		if (albumId) document.getElementById(`album-${albumId}`)?.scrollIntoView({ block: 'nearest' });
+	}
 
 	// Track id -> track and album, for the now-playing line.
 	const byId = $derived(new Map(albums.flatMap((a) => a.tracks.map((t) => [t.id, { t, a }] as const))));
 	const nowPlaying = $derived(player.trackId !== null ? byId.get(player.trackId) : undefined);
 
 	async function playAlbum(al: Album, start = 0) {
-		const ids = al.tracks.map((t) => t.id).filter((x): x is number => x !== undefined);
+		// Device-only tracks have negative ids and are not on this computer.
+		const ids = al.tracks.map((t) => t.id).filter((x): x is number => x !== undefined && x > 0);
 		if (api && ids.length) player = await api.player.play(ids, start);
 	}
 	const act = (f: (a: Api) => Promise<PlayerState>) => async () => {
@@ -63,6 +93,10 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
+		if (e.code === 'Escape' && fullscreen) {
+			fullscreen = false;
+			return;
+		}
 		if (e.code === 'Space' && !(e.target instanceof HTMLInputElement)) {
 			e.preventDefault();
 			act((a) => a.player.toggle())();
@@ -70,10 +104,8 @@
 	}
 	const isPlaying = (t: Track) => t.id !== undefined && t.id === player.trackId;
 
-	// "device" shows only what is on the Zune; "collection" shows everything.
-	const visible = $derived(
-		pivot === 'device' ? albums.filter((a) => a.tracks.some((t) => t.onDevice)) : albums
-	);
+	// "device" shows what is on the Zune itself; "collection" shows the library.
+	const visible = $derived(pivot === 'device' ? deviceAlbums : albums);
 	const artists = $derived([...new Set(visible.map((a) => a.artist))].sort((a, b) => a.localeCompare(b)));
 	const shownAlbums = $derived(artist ? visible.filter((a) => a.artist === artist) : visible);
 	const selected = $derived(shownAlbums.find((a) => a.id === selectedId) ?? shownAlbums[0] ?? null);
@@ -114,6 +146,11 @@
 					<p class="text-muted-foreground">Read from <code class="font-mono text-foreground">~/.mtpz-data</code>. Squirt does not include keys.</p>
 				</div>
 			</section>
+		{:else if pivot === 'device' && !device?.connected}
+			<section class="flex flex-col gap-2">
+				<p class="subpivot text-muted-foreground">{device?.problem ? 'your zune is connected but squirt cannot use it' : 'connect your zune'}</p>
+				{#if device?.problem}<p class="text-muted-foreground">{device.problem}</p>{/if}
+			</section>
 		{:else}
 			<!-- artists -->
 			<section class="flex w-52 shrink-0 flex-col">
@@ -131,14 +168,14 @@
 				<h3 class="colhead mb-2">album</h3>
 				<ScrollArea class="min-h-0 flex-1 pr-3">
 					{#each shownAlbums as al (al.id)}
-						<button class="flex w-full items-center gap-3 p-1.5 text-left transition-colors {selected?.id === al.id ? 'bg-selection' : 'hover:bg-accent'}"
+						<button id="album-{al.id}" class="flex w-full items-center gap-3 p-1.5 text-left transition-colors {selected?.id === al.id ? 'bg-selection' : 'hover:bg-accent'}"
 							onclick={() => (selectedId = al.id)}>
 							<AlbumArt hue={al.hue} size={52} src={al.art ?? undefined} />
 							<span class="flex min-w-0 flex-col">
 								<span class="truncate text-[0.95rem]">{al.title}</span>
 								<span class="truncate text-xs text-muted-foreground">{al.artist}{al.year ? ` · ${al.year}` : ''}</span>
 							</span>
-							{#if al.tracks.every((t) => t.onDevice)}
+							{#if pivot === 'collection' && al.tracks.every((t) => t.onDevice)}
 								<ZuneHD class="ml-auto shrink-0 text-muted-foreground" size={16} />
 							{/if}
 						</button>
@@ -158,7 +195,9 @@
 								{[selected.genre, selected.year, `${selected.tracks.length} songs`].filter(Boolean).join(' · ')}
 							</span>
 						</div>
-						<Button size="sm" variant="outline" class="lowercase" onclick={() => playAlbum(selected!)}><Play weight="fill" />play</Button>
+						{#if pivot === 'collection'}
+							<Button size="sm" variant="outline" class="lowercase" onclick={() => playAlbum(selected!)}><Play weight="fill" />play</Button>
+						{/if}
 						{#if pivot === 'collection'}
 							{#if selectedOnDevice}
 								<span class="flex items-center gap-1.5 pb-1 text-xs text-muted-foreground lowercase"><Check size={14} />on device</span>
@@ -183,7 +222,7 @@
 								</span>
 								<span class="truncate">{t.title}</span>
 								<span class="tabular text-right text-xs text-muted-foreground">{duration(t.durationMs)}</span>
-								{#if t.onDevice}<ZuneHD size={14} class="text-muted-foreground" />{:else}<span></span>{/if}
+								{#if pivot === 'collection' && t.onDevice}<ZuneHD size={14} class="text-muted-foreground" />{:else}<span></span>{/if}
 							</div>
 						{/each}
 					</ScrollArea>
@@ -203,9 +242,13 @@
 		<Transport
 			state={player}
 			title={nowPlaying?.t.title}
-			subtitle={nowPlaying ? `${nowPlaying.t.artist} · ${nowPlaying.a.title}` : undefined}
+			artist={nowPlaying?.t.artist}
+			album={nowPlaying?.a.title}
 			art={nowPlaying?.a.art ?? undefined}
 			hue={nowPlaying?.a.hue}
+			onArtist={() => nowPlaying && show(nowPlaying.a.artist)}
+			onAlbum={() => nowPlaying && show(nowPlaying.a.artist, nowPlaying.a.id)}
+			onArt={() => (fullscreen = true)}
 			onToggle={act((a) => a.player.toggle())}
 			onPrev={act((a) => a.player.prev())}
 			onNext={act((a) => a.player.next())}
@@ -218,6 +261,24 @@
 		</div>
 	</footer>
 </div>
+
+{#if fullscreen && nowPlaying}
+	<NowPlaying
+		state={player}
+		track={nowPlaying.t}
+		album={nowPlaying.a}
+		upNext={player.queue.slice(player.queue.indexOf(player.trackId ?? -1) + 1, player.queue.indexOf(player.trackId ?? -1) + 5).map((id) => byId.get(id)?.t).filter((t) => t !== undefined)}
+		bind:volume
+		onVolume={setVolume}
+		onToggle={act((a) => a.player.toggle())}
+		onPrev={act((a) => a.player.prev())}
+		onNext={act((a) => a.player.next())}
+		onSeek={(ms) => act((a) => a.player.seek(ms))()}
+		onArtist={() => show(nowPlaying!.a.artist)}
+		onAlbum={() => show(nowPlaying!.a.artist, nowPlaying!.a.id)}
+		onClose={() => (fullscreen = false)}
+	/>
+{/if}
 
 <style>
 	.row {

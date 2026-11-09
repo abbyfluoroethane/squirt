@@ -1,0 +1,425 @@
+//! The app's backend: library, player and Zune, behind one thread-safe API.
+//!
+//! Both front ends use this: the Tauri app (as commands) and `squirt serve`
+//! (as a JSON API for developing the UI in a browser). Each part has its own
+//! lock, so a slow device read never blocks playback controls.
+
+use serde::Serialize;
+use squirt_library::Library;
+use squirt_mtp::device::Zune;
+use squirt_mtp::library::{DeviceAlbum, DeviceTrack};
+use squirt_mtp::mtpz::MtpzKeys;
+use squirt_player::{Event, Player, Status};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+pub type Result<T> = std::result::Result<T, String>;
+
+fn err(e: impl std::fmt::Display) -> String {
+    e.to_string()
+}
+
+// ------------------------------------------------------------------ types
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackDto {
+    pub id: i64,
+    pub disc: u32,
+    pub n: u32,
+    pub title: String,
+    pub artist: String,
+    pub duration_ms: u64,
+    pub size: u64,
+    pub codec: String,
+    pub on_device: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumDto {
+    pub id: String,
+    pub title: String,
+    pub artist: String,
+    pub year: Option<u32>,
+    pub genre: Option<String>,
+    pub hue: u32,
+    /// Art key: `lib/<key>` for the library cache, `dev/<handle>` for device art.
+    pub art: Option<String>,
+    pub tracks: Vec<TrackDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct Usage {
+    pub music: u64,
+    pub videos: u64,
+    pub pictures: u64,
+    pub other: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceStatus {
+    pub connected: bool,
+    pub name: String,
+    pub model: String,
+    pub firmware: String,
+    pub capacity: u64,
+    pub free: u64,
+    pub usage: Usage,
+    /// Set when a Zune is plugged in but cannot be used (no keys, handshake failed).
+    pub problem: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayerStateDto {
+    pub status: &'static str,
+    pub track_id: Option<i64>,
+    pub position_ms: u64,
+    pub duration_ms: u64,
+    pub volume: f32,
+    pub queue: Vec<i64>,
+}
+
+// ----------------------------------------------------------------- device
+
+/// The device's music, read once per connection (it takes a few seconds).
+struct DeviceLibrary {
+    tracks: Vec<DeviceTrack>,
+    albums: Vec<DeviceAlbum>,
+}
+
+#[derive(Default)]
+struct DeviceSlot {
+    zune: Option<Zune>,
+    storage: u32,
+    status: DeviceStatus,
+    checked: Option<Instant>,
+    library: Option<DeviceLibrary>,
+    art: HashMap<u32, Vec<u8>>,
+}
+
+fn hue(s: &str) -> u32 {
+    s.chars().fold(0u32, |h, c| h.wrapping_mul(31).wrapping_add(c as u32)) % 360
+}
+
+fn norm(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+// ---------------------------------------------------------------- service
+
+struct Playback {
+    player: Player,
+    queue: Vec<i64>,
+}
+
+pub struct Service {
+    lib: Mutex<Library>,
+    player: Mutex<Option<Playback>>,
+    device: Mutex<DeviceSlot>,
+}
+
+impl Service {
+    pub fn open() -> Result<Self> {
+        let (db, art) = Library::default_dirs().ok_or("no data directory")?;
+        Ok(Self {
+            lib: Mutex::new(Library::open(&db, &art).map_err(err)?),
+            player: Mutex::new(None),
+            device: Mutex::new(DeviceSlot::default()),
+        })
+    }
+
+    // --------------------------------------------------------- library
+
+    /// Every album in the library, with tracks, marking the ones on the device.
+    pub fn collection(&self) -> Result<Vec<AlbumDto>> {
+        let on_device: HashSet<(String, String, String)> = {
+            let dev = self.device.lock().unwrap();
+            dev.library
+                .as_ref()
+                .map(|l| l.tracks.iter().map(|t| (norm(&t.album_artist), norm(&t.album), norm(&t.title))).collect())
+                .unwrap_or_default()
+        };
+        let lib = self.lib.lock().unwrap();
+        let mut out = Vec::new();
+        for a in lib.albums(None).map_err(err)? {
+            let tracks = lib
+                .album_tracks(&a.artist, &a.title)
+                .map_err(err)?
+                .into_iter()
+                .map(|t| TrackDto {
+                    on_device: on_device.contains(&(norm(&t.album_artist), norm(&t.album), norm(&t.title))),
+                    id: t.id,
+                    disc: t.disc_no.unwrap_or(1),
+                    n: t.track_no.unwrap_or(0),
+                    title: t.title,
+                    artist: t.artist,
+                    duration_ms: t.duration_ms,
+                    size: t.size,
+                    codec: t.codec,
+                })
+                .collect();
+            out.push(AlbumDto {
+                id: format!("{}\u{1f}{}", a.artist, a.title),
+                hue: hue(&format!("{}{}", a.artist, a.title)),
+                art: a.art.map(|k| format!("lib/{k}")),
+                title: a.title,
+                artist: a.artist,
+                year: a.year,
+                genre: a.genre,
+                tracks,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Bytes of an art image by key (`lib/<key>` or `dev/<handle>`), as JPEG.
+    pub fn art(&self, key: &str) -> Option<Vec<u8>> {
+        if let Some(k) = key.strip_prefix("lib/") {
+            if !k.chars().all(|c| c.is_ascii_hexdigit()) {
+                return None;
+            }
+            let path = self.lib.lock().unwrap().art_path(k);
+            return std::fs::read(path).ok();
+        }
+        let handle: u32 = key.strip_prefix("dev/")?.parse().ok()?;
+        let mut dev = self.device.lock().unwrap();
+        if let Some(b) = dev.art.get(&handle) {
+            return Some(b.clone());
+        }
+        let bytes = dev.zune.as_mut()?.prop_bytes(handle, squirt_mtp::library::REPRESENTATIVE_SAMPLE_DATA).ok()?;
+        dev.art.insert(handle, bytes.clone());
+        Some(bytes)
+    }
+
+    // ---------------------------------------------------------- device
+
+    /// Device status. Connects when a Zune appears; cheap when nothing changed.
+    pub fn device_status(&self) -> DeviceStatus {
+        let mut dev = self.device.lock().unwrap();
+        if dev.checked.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
+            return dev.status.clone();
+        }
+        dev.checked = Some(Instant::now());
+
+        if dev.zune.is_none() {
+            let present = squirt_mtp::devices::find_zunes().map(|z| !z.is_empty()).unwrap_or(false);
+            if !present {
+                dev.status = DeviceStatus::default();
+                dev.library = None;
+                dev.art.clear();
+                return dev.status.clone();
+            }
+            let keys = match MtpzKeys::default_path().map(|p| MtpzKeys::load(&p)) {
+                Some(Ok(k)) => k,
+                Some(Err(e)) => return problem(&mut dev, format!("MTPZ keys: {e}")),
+                None => return problem(&mut dev, "no home directory for ~/.mtpz-data".into()),
+            };
+            match Zune::connect(Some(&keys)) {
+                Ok(mut z) => {
+                    dev.storage = z.storage_ids().ok().and_then(|s| s.first().copied()).unwrap_or(0);
+                    // Read the device's music now (a few seconds), so the
+                    // collection can mark what is already on it.
+                    let tracks = z.music_tracks().unwrap_or_default();
+                    let albums = z.album_objects(dev.storage).unwrap_or_default();
+                    dev.library = Some(DeviceLibrary { tracks, albums });
+                    dev.zune = Some(z);
+                }
+                Err(e) => return problem(&mut dev, format!("could not connect: {e}")),
+            }
+        }
+
+        let storage = dev.storage;
+        let z = dev.zune.as_mut().unwrap();
+        let info = z.storage_info(storage);
+        let name = z
+            .raw(0x1015, &[0xD402])
+            .ok()
+            .and_then(|d| squirt_mtp::dataset::Reader::new(&d).string().ok())
+            .unwrap_or_default();
+        let model = z.info.model.clone();
+        let firmware = z.info.device_version.split('-').next().unwrap_or("").to_string();
+        match info {
+            Ok(si) => {
+                let music: u64 = dev.library.as_ref().map(|l| l.tracks.iter().map(|t| t.size).sum()).unwrap_or(0);
+                let used = si.max_capacity.saturating_sub(si.free_bytes);
+                dev.status = DeviceStatus {
+                    connected: true,
+                    name,
+                    model: if model == "Zune" { "Zune HD".into() } else { model },
+                    firmware,
+                    capacity: si.max_capacity,
+                    free: si.free_bytes,
+                    usage: Usage { music, other: used.saturating_sub(music), ..Default::default() },
+                    problem: None,
+                };
+            }
+            Err(_) => {
+                // Unplugged or wedged: drop the connection and report disconnected.
+                dev.zune = None;
+                dev.library = None;
+                dev.art.clear();
+                dev.status = DeviceStatus::default();
+            }
+        }
+        dev.status.clone()
+    }
+
+    /// The device's music as albums. Reads the device on first call after connecting.
+    pub fn device_collection(&self) -> Result<Vec<AlbumDto>> {
+        let mut dev = self.device.lock().unwrap();
+        if dev.library.is_none() {
+            let storage = dev.storage;
+            let Some(z) = dev.zune.as_mut() else { return Ok(Vec::new()) };
+            let tracks = z.music_tracks().map_err(err)?;
+            let albums = z.album_objects(storage).map_err(err)?;
+            dev.library = Some(DeviceLibrary { tracks, albums });
+        }
+        let lib = dev.library.as_ref().unwrap();
+        let by_handle: HashMap<u32, &DeviceAlbum> = lib.albums.iter().map(|a| (a.handle, a)).collect();
+
+        // Group by linked album object, falling back to the album text.
+        let mut groups: HashMap<String, (Option<&DeviceAlbum>, Vec<&DeviceTrack>)> = HashMap::new();
+        for t in &lib.tracks {
+            let album = t.album_ref.and_then(|h| by_handle.get(&h).copied());
+            let key = match album {
+                Some(a) => format!("h{}", a.handle),
+                None => format!("t{}\u{1f}{}", norm(&t.album_artist), norm(&t.album)),
+            };
+            let e = groups.entry(key).or_insert((album, Vec::new()));
+            e.1.push(t);
+        }
+        let mut out: Vec<AlbumDto> = groups
+            .into_iter()
+            .map(|(key, (album, mut tracks))| {
+                tracks.sort_by_key(|t| (t.track_no, t.title.clone()));
+                let first = tracks[0];
+                let title = album.map(|a| a.title.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| first.album.clone());
+                let artist = album.map(|a| a.artist.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| first.album_artist.clone());
+                AlbumDto {
+                    id: format!("dev:{key}"),
+                    hue: hue(&format!("{artist}{title}")),
+                    art: album.filter(|a| a.has_art).map(|a| format!("dev/{}", a.handle)),
+                    year: None,
+                    genre: first.genre.clone(),
+                    tracks: tracks
+                        .iter()
+                        .map(|t| TrackDto {
+                            // Device tracks are not playable from the computer; negative ids keep them apart.
+                            id: -(t.handle as i64),
+                            disc: if t.track_no >= 100 { (t.track_no / 100) as u32 } else { 1 },
+                            n: if t.track_no >= 100 { (t.track_no % 100) as u32 } else { t.track_no as u32 },
+                            title: t.title.clone(),
+                            artist: t.artist.clone(),
+                            duration_ms: t.duration_ms as u64,
+                            size: t.size,
+                            codec: match t.format {
+                                squirt_mtp::device::format::MP3 => "mp3",
+                                squirt_mtp::device::format::WMA => "wma",
+                                _ => "aac",
+                            }
+                            .into(),
+                            on_device: true,
+                        })
+                        .collect(),
+                    title,
+                    artist,
+                }
+            })
+            .collect();
+        out.sort_by_key(|a| (norm(&a.artist), norm(&a.title)));
+        Ok(out)
+    }
+
+    // ---------------------------------------------------------- player
+
+    fn with_player<T>(&self, f: impl FnOnce(&mut Playback) -> T) -> Result<T> {
+        let mut slot = self.player.lock().unwrap();
+        if slot.is_none() {
+            let p = Player::new().map_err(err)?;
+            p.set_volume(0.7);
+            *slot = Some(Playback { player: p, queue: Vec::new() });
+        }
+        Ok(f(slot.as_mut().unwrap()))
+    }
+
+    /// Current player state; also records plays for finished tracks.
+    pub fn player_state(&self) -> PlayerStateDto {
+        let slot = self.player.lock().unwrap();
+        let Some(pb) = slot.as_ref() else {
+            return PlayerStateDto { status: "stopped", track_id: None, position_ms: 0, duration_ms: 0, volume: 0.7, queue: Vec::new() };
+        };
+        for e in pb.player.take_events() {
+            if let Event::TrackCompleted(i) = e {
+                if let Some(id) = pb.queue.get(i) {
+                    let _ = self.lib.lock().unwrap().record_play(*id);
+                }
+            }
+        }
+        let s = pb.player.state();
+        PlayerStateDto {
+            status: match s.status {
+                Status::Playing => "playing",
+                Status::Paused => "paused",
+                Status::Stopped => "stopped",
+            },
+            track_id: s.index.and_then(|i| pb.queue.get(i).copied()),
+            position_ms: s.position_ms,
+            duration_ms: s.duration_ms,
+            volume: s.volume,
+            queue: pb.queue.clone(),
+        }
+    }
+
+    /// Plays library tracks `ids`, starting at index `start`.
+    pub fn play(&self, ids: Vec<i64>, start: usize) -> Result<PlayerStateDto> {
+        let paths: Vec<PathBuf> = {
+            let lib = self.lib.lock().unwrap();
+            ids.iter().filter_map(|id| lib.track(*id).ok().flatten().map(|t| t.path)).collect()
+        };
+        if paths.len() != ids.len() || ids.is_empty() {
+            return Err("some tracks are not in the library".into());
+        }
+        self.with_player(|pb| {
+            pb.queue = ids;
+            pb.player.play_queue(paths, start.min(pb.queue.len() - 1));
+        })?;
+        Ok(self.settled())
+    }
+
+    pub fn toggle(&self) -> Result<PlayerStateDto> {
+        self.with_player(|pb| pb.player.toggle())?;
+        Ok(self.settled())
+    }
+    pub fn next(&self) -> Result<PlayerStateDto> {
+        self.with_player(|pb| pb.player.next())?;
+        Ok(self.settled())
+    }
+    pub fn prev(&self) -> Result<PlayerStateDto> {
+        self.with_player(|pb| pb.player.prev())?;
+        Ok(self.settled())
+    }
+    pub fn seek(&self, ms: u64) -> Result<PlayerStateDto> {
+        self.with_player(|pb| pb.player.seek(ms))?;
+        Ok(self.settled())
+    }
+    pub fn volume(&self, v: f32) -> Result<PlayerStateDto> {
+        self.with_player(|pb| pb.player.set_volume(v))?;
+        Ok(self.player_state())
+    }
+
+    /// State after giving the player thread a moment to act on a command.
+    fn settled(&self) -> PlayerStateDto {
+        std::thread::sleep(Duration::from_millis(30));
+        self.player_state()
+    }
+}
+
+fn problem(dev: &mut DeviceSlot, msg: String) -> DeviceStatus {
+    dev.status = DeviceStatus { problem: Some(msg), ..Default::default() };
+    dev.status.clone()
+}

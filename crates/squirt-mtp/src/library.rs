@@ -11,7 +11,8 @@
 //! "Unknown Album", whatever its Artist/Album properties say.
 
 use crate::container::op;
-use crate::device::{encode_prop_list, format, prop, DeviceError, PropValue, Zune, ROOT};
+use crate::device::{encode_prop_list, format, prop, AnyValue, DeviceError, PropValue, Zune, ROOT};
+use std::collections::HashMap;
 
 pub mod zprop {
     /// Microsoft vendor property: handle of the linked artist object.
@@ -372,6 +373,95 @@ impl Zune {
         Ok(changes)
     }
 }
+
+/// A track as the device knows it.
+#[derive(Debug, Clone)]
+pub struct DeviceTrack {
+    pub handle: u32,
+    pub format: u16,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub album_artist: String,
+    pub genre: Option<String>,
+    pub track_no: u16,
+    pub duration_ms: u32,
+    pub size: u64,
+    /// Handle of the album object this track links to (0xDABB), if any.
+    pub album_ref: Option<u32>,
+    pub play_count: u32,
+}
+
+/// An album object (`Albums/*.alb`).
+#[derive(Debug, Clone)]
+pub struct DeviceAlbum {
+    pub handle: u32,
+    pub title: String,
+    pub artist: String,
+    pub has_art: bool,
+}
+
+impl Zune {
+    /// Every property of every object of `format`, in one GetObjectPropList.
+    /// About 15 ms per track on a Zune HD.
+    fn props_by_format(&mut self, format: u16) -> Result<HashMap<u32, HashMap<u16, AnyValue>>, DeviceError> {
+        self.bulk_props(0xFFFF_FFFF, format, 0)
+    }
+
+    /// The music on the device: every MP3, WMA and M4A track with its metadata.
+    pub fn music_tracks(&mut self) -> Result<Vec<DeviceTrack>, DeviceError> {
+        let mut out = Vec::new();
+        for fmt in [format::MP3, format::WMA, format::M4A] {
+            for (handle, p) in self.props_by_format(fmt)? {
+                let s = |c: u16| match p.get(&c) {
+                    Some(AnyValue::Str(v)) => v.clone(),
+                    _ => String::new(),
+                };
+                let n = |c: u16| match p.get(&c) {
+                    Some(AnyValue::Int(v)) => Some(*v),
+                    _ => None,
+                };
+                let genre = s(prop::GENRE);
+                out.push(DeviceTrack {
+                    handle,
+                    format: fmt,
+                    title: s(prop::NAME),
+                    artist: s(prop::ARTIST),
+                    album: s(prop::ALBUM_NAME),
+                    album_artist: s(prop::ALBUM_ARTIST),
+                    genre: (!genre.is_empty()).then_some(genre),
+                    track_no: n(prop::TRACK).unwrap_or(0) as u16,
+                    duration_ms: n(prop::DURATION).unwrap_or(0) as u32,
+                    size: n(prop::OBJECT_SIZE).unwrap_or(0) as u64,
+                    album_ref: n(zprop::ALBUM_REF).map(|v| v as u32).filter(|&v| v != 0),
+                    play_count: n(USE_COUNT).unwrap_or(0) as u32,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// The album objects on the device.
+    pub fn album_objects(&mut self, storage: u32) -> Result<Vec<DeviceAlbum>, DeviceError> {
+        let Some(albums) = self.find_child(storage, ROOT, "Albums")? else { return Ok(Vec::new()) };
+        let mut out = Vec::new();
+        for (handle, p) in self.bulk_props(albums, 0, 1)? {
+            if handle == albums || !matches!(p.get(&prop::OBJECT_FORMAT), Some(AnyValue::Int(f)) if *f as u16 == format::ABSTRACT_AUDIO_ALBUM) {
+                continue;
+            }
+            let s = |c: u16| match p.get(&c) {
+                Some(AnyValue::Str(v)) => v.clone(),
+                _ => String::new(),
+            };
+            let has_art = matches!(p.get(&REPRESENTATIVE_SAMPLE_DATA), Some(AnyValue::Array(a)) if !a.is_empty());
+            out.push(DeviceAlbum { handle, title: s(prop::NAME), artist: s(prop::ARTIST), has_art });
+        }
+        Ok(out)
+    }
+}
+
+/// Number of times a track has been played on the device.
+pub const USE_COUNT: u16 = 0xDC91;
 
 #[cfg(test)]
 mod tests {

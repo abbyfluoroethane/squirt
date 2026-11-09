@@ -1,0 +1,12 @@
+[package]
+license = "MIT"
+name = "squirt-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+squirt-library = { version = "0.1.0", path = "../squirt-library" }
+squirt-mtp = { version = "0.1.0", path = "../squirt-mtp" }
+squirt-player = { version = "0.1.0", path = "../squirt-player" }
+thiserror = "2.0.21"

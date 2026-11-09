@@ -320,6 +320,22 @@ impl Zune {
         }
     }
 
+    /// All properties of `handle` (or of every object of `format` when `handle`
+    /// is 0xFFFFFFFF), down to `depth`, grouped by object.
+    pub fn bulk_props(&mut self, handle: u32, format: u16, depth: u32) -> Result<HashMap<u32, HashMap<u16, AnyValue>>, DeviceError> {
+        let d = self.data(op::GET_OBJECT_PROP_LIST, &[handle, format as u32, 0xFFFF_FFFF, 0, depth], "ObjectPropList")?;
+        let mut r = Reader::new(&d);
+        let mut out: HashMap<u32, HashMap<u16, AnyValue>> = HashMap::new();
+        for _ in 0..r.u32()? {
+            let h = r.u32()?;
+            let code = r.u16()?;
+            let dt = r.u16()?;
+            let v = read_value(&mut r, dt)?;
+            out.entry(h).or_default().insert(code, v);
+        }
+        Ok(out)
+    }
+
     /// All properties of one object, via GetObjectPropList (all props, depth 0).
     pub fn all_props(&mut self, handle: u32) -> Result<Vec<(u16, u16, AnyValue)>, DeviceError> {
         let d = self.data(op::GET_OBJECT_PROP_LIST, &[handle, 0, 0xFFFF_FFFF, 0, 0], "ObjectPropList")?;

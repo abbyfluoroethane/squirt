@@ -1361,6 +1361,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -1462,10 +1463,12 @@ dependencies = [
  "image",
  "indicatif",
  "lofty",
+ "serde",
  "serde_json",
  "squirt-library",
  "squirt-mtp",
  "squirt-player",
+ "squirt-service",
  "tiny_http",
 ]
 
@@ -1506,6 +1509,17 @@ dependencies = [
  "rubato",
  "symphonia",
  "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "squirt-service"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "squirt-library",
+ "squirt-mtp",
+ "squirt-player",
  "thiserror 2.0.21",
 ]
 

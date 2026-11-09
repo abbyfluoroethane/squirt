@@ -17,6 +17,8 @@ export interface DeviceStatus {
 	capacity: number;
 	free: number;
 	usage: Usage;
+	/** Set when a Zune is plugged in but cannot be used. */
+	problem?: string | null;
 }
 
 export interface Track {
@@ -77,7 +79,14 @@ export interface PlayerApi {
 export interface Api {
 	device(): Promise<DeviceStatus>;
 	collection(): Promise<Album[]>;
+	/** The music on the Zune itself (empty when none is connected). */
+	deviceCollection(): Promise<Album[]>;
 	player: PlayerApi;
+}
+
+/** Turns backend art keys (`lib/<key>`, `dev/<handle>`) into URLs. */
+function withArt(albums: Album[], url: (key: string) => string): Album[] {
+	return albums.map((a) => ({ ...a, art: a.art ? url(a.art) : null }));
 }
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -215,6 +224,9 @@ const mock: Api = {
 	},
 	async collection() {
 		return MOCK_COLLECTION;
+	},
+	async deviceCollection() {
+		return MOCK_COLLECTION.filter((a) => a.tracks.every((t) => t.onDevice));
 	}
 };
 
@@ -235,16 +247,16 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 	return invoke<T>(cmd, args);
 }
 
+async function tauriArt(albums: Album[]): Promise<Album[]> {
+	const { convertFileSrc } = await import('@tauri-apps/api/core');
+	return withArt(albums, (k) => convertFileSrc(k, 'squirt'));
+}
+
 const tauri: Api = {
 	player: tauriPlayer,
-	async device() {
-		const { invoke } = await import('@tauri-apps/api/core');
-		return invoke<DeviceStatus>('device_status');
-	},
-	async collection() {
-		const { invoke } = await import('@tauri-apps/api/core');
-		return invoke<Album[]>('collection');
-	}
+	device: () => call<DeviceStatus>('device_status'),
+	collection: async () => tauriArt(await call<Album[]>('collection')),
+	deviceCollection: async () => tauriArt(await call<Album[]>('device_collection'))
 };
 
 // ---------------------------------------------------------------- dev api
@@ -267,7 +279,10 @@ const devApi: Api = {
 		return (await fetch('/api/device')).json();
 	},
 	async collection() {
-		return (await fetch('/api/collection')).json();
+		return withArt(await (await fetch('/api/collection')).json(), (k) => `/api/art/${k}`);
+	},
+	async deviceCollection() {
+		return withArt(await (await fetch('/api/device/collection')).json(), (k) => `/api/art/${k}`);
 	}
 };
 
