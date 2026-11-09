@@ -5,7 +5,7 @@
 //! - Album objects (format 0xBA03) at `Albums/<Album Artist>--<Album>.alb`, linked
 //!   to their artist (0xDAB9), holding cover art (0xDC86, JPEG within 240x240)
 //!   and referencing their tracks.
-//! - Tracks link to their artist (0xDAB9) and album (0xDABB).
+//! - Tracks link to their album artist (0xDAB9) and album (0xDABB).
 //!
 //! If a track has no links, the device files it under "Unknown Artist" and
 //! "Unknown Album", whatever its Artist/Album properties say.
@@ -206,12 +206,10 @@ impl Zune {
 
         let artists = self.ensure_folder(storage, ROOT, "Artists")?;
         let albums = self.ensure_folder(storage, ROOT, "Albums")?;
+        // Tracks link to the album artist, not their own artist, so featured
+        // artists ("A & B", "A feat. C") do not each add an entry to the
+        // device's Artists list. The track's own artist stays in its Artist property.
         let album_artist_obj = self.ensure_artist(storage, artists, &t.album_artist)?;
-        let track_artist_obj = if t.artist == t.album_artist {
-            album_artist_obj
-        } else {
-            self.ensure_artist(storage, artists, &t.artist)?
-        };
         let album = self.ensure_album(storage, albums, t, album_artist_obj)?;
 
         let mut props = vec![
@@ -221,7 +219,7 @@ impl Zune {
             str_prop(prop::ALBUM_NAME, &t.album),
             str_prop(prop::ALBUM_ARTIST, &t.album_artist),
             (prop::DURATION, PropValue::U32(t.duration_ms)),
-            (zprop::ARTIST_REF, PropValue::U32(track_artist_obj)),
+            (zprop::ARTIST_REF, PropValue::U32(album_artist_obj)),
             (zprop::ALBUM_REF, PropValue::U32(album)),
         ];
         if let Some(n) = track_no {
