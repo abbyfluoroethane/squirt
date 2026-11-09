@@ -1,0 +1,7 @@
+/* Intro, 0.0-3.0 s: opaque black with two Metro lines. */
+.c0 { background: var(--bg); animation: c0-vis 30s linear both; }
+@keyframes c0-vis { 0%, 9.9% { opacity: 1; } 10%, 100% { opacity: 0; } }
+.c0 .c0-line { position: absolute; left: 240px; top: 470px; font: 300 100px/1 var(--sans); white-space: nowrap; }
+.c0 .c0-a { animation: metro-enter 0.7s var(--ease-metro) 0.15s both, c0-out 0.2s linear 1.35s forwards; }
+.c0 .c0-b { animation: metro-enter 0.7s var(--ease-metro) 1.6s both; }
+@keyframes c0-out { to { opacity: 0; } }

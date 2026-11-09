@@ -12,6 +12,9 @@ const FROM = Number(arg('from', 0));
 const TO = Number(arg('to', 30));
 const STILLS = arg('stills', null);
 const OUT = arg('out', 'out');
+const PAGE = arg('page', 'index.html');
+// --alpha: transparent background, PNG frames only (no encode), for overlays.
+const ALPHA = process.argv.includes('--alpha');
 // A fresh port per run, so a server left over from the last run can't interfere.
 const PORT = 5300 + Math.floor(Math.random() * 600);
 
@@ -30,7 +33,7 @@ const browser = await puppeteer.launch({
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1 });
-  await page.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'networkidle0' });
+  await page.goto(`http://127.0.0.1:${PORT}/${PAGE}`, { waitUntil: 'networkidle0' });
   await page.waitForFunction('window.__ready === true', { timeout: 60000 });
   await page.evaluate(() => document.getAnimations().forEach((a) => a.pause()));
   const stage = await page.$('#stage');
@@ -49,10 +52,14 @@ try {
     const n = Math.round((TO - FROM) * FPS);
     for (let i = 0; i < n; i++) {
       await seek(FROM + i / FPS);
-      await stage.screenshot({ path: `${dir}/${String(i).padStart(5, '0')}.png` });
+      await stage.screenshot({ path: `${dir}/${String(i).padStart(5, '0')}.png`, omitBackground: ALPHA });
       if (i % 60 === 0) process.stdout.write(`\r${i}/${n}`);
     }
     process.stdout.write(`\r${n}/${n}\n`);
+    if (ALPHA) {
+      console.log(`wrote ${dir}`);
+      process.exit(0);
+    }
     const audio = existsSync('audio.wav') ? ['-i', 'audio.wav'] : [];
     execFileSync('/opt/homebrew/bin/ffmpeg', [
       '-v', 'error', '-y', '-framerate', String(FPS), '-i', `${dir}/%05d.png`, ...audio,

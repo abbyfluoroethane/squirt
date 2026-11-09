@@ -1,0 +1,14 @@
+/* Captions over the UI, 3.0-23.9 s. The window is 1440x810 at (240, 210). */
+.c1 { animation: c1-vis 30s linear both; }
+@keyframes c1-vis { 0%, 9.9% { opacity: 0; } 10%, 79.6% { opacity: 1; } 79.7%, 100% { opacity: 0; } }
+.c1 .c1-window { position: absolute; left: 240px; top: 210px; width: 1440px; height: 810px; box-shadow: 0 0 0 2000px var(--bg); outline: 1px solid rgba(255,255,255,0.08); }
+.c1 .c1-brand { position: absolute; right: 240px; top: 92px; display: flex; align-items: center; gap: 14px; color: var(--muted); font: 600 30px/1 var(--sans); }
+.c1 .c1-brand img { height: 34px; }
+.c1 .c1-cap { position: absolute; left: 240px; top: 72px; font: 300 84px/1 var(--sans); white-space: nowrap; opacity: 0; }
+/* Each caption: Metro entrance just after its cut, quick fade before the next. */
+.c1 .c1-1 { animation: metro-enter 0.7s var(--ease-metro) 3.1s both, c1-out 0.2s linear 8.3s forwards; }
+.c1 .c1-2 { animation: metro-enter 0.7s var(--ease-metro) 8.6s both, c1-out 0.2s linear 12.8s forwards; }
+.c1 .c1-3 { animation: metro-enter 0.7s var(--ease-metro) 13.1s both, c1-out 0.2s linear 16.8s forwards; }
+.c1 .c1-4 { animation: metro-enter 0.7s var(--ease-metro) 17.1s both, c1-out 0.2s linear 19.8s forwards; }
+.c1 .c1-5 { animation: metro-enter 0.7s var(--ease-metro) 20.1s both, c1-out 0.2s linear 23.6s forwards; }
+@keyframes c1-out { to { opacity: 0; } }

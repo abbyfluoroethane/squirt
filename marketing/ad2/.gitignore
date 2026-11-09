@@ -1,0 +1,7 @@
+# Recordings and renders contain the user's library and music: internal only, not committed.
+*.mp4
+*.webm
+seg/
+check/
+fonts/
+node_modules

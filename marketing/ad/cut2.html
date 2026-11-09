@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Squirt ad (UI cut): overlay</title>
+<link rel="stylesheet" href="assets/brand.css">
+<style>
+  /* Transparent page: this is an overlay rendered with --alpha. */
+  html, body { margin: 0; background: transparent; }
+  #stage { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: transparent; color: var(--fg); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  .scene { position: absolute; inset: 0; opacity: 0; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+  // c0 intro, c1 captions over the UI window, s5 the end card from the first cut.
+  const SCENES = ['cut2/c0', 'cut2/c1', 'scenes/s5'];
+  async function load() {
+    const stage = document.getElementById('stage');
+    for (const s of SCENES) {
+      const [html, css] = await Promise.all([fetch(`${s}.html`).then((r) => r.text()), fetch(`${s}.css`).then((r) => r.text())]);
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.head.appendChild(style);
+      stage.insertAdjacentHTML('beforeend', html);
+    }
+    await document.fonts.ready;
+    window.__ready = true;
+  }
+  load();
+</script>
+</body>
+</html>
