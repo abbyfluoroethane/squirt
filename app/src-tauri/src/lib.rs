@@ -3,7 +3,7 @@
 
 mod media;
 
-use squirt_service::{AlbumDto, DeviceInfoDto, DeviceStatus, LastFmProfile, PlayerStateDto, Service, SocialStatus};
+use squirt_service::{AlbumDto, DeviceInfoDto, DeviceStatus, FolderDto, PictureAlbumDto, ScanStatus, VideoDto, LastFmProfile, PlayerStateDto, Service, SocialStatus};
 use std::sync::Arc;
 use tauri::http::Response;
 use tauri::{Manager, State};
@@ -21,6 +21,47 @@ fn collection(svc: Svc) -> Result<Vec<AlbumDto>, String> {
 #[tauri::command(async)]
 fn device_status(svc: Svc) -> DeviceStatus {
     svc.device_status()
+}
+
+#[tauri::command(async)]
+fn folders(svc: Svc) -> Result<Vec<FolderDto>, String> {
+    svc.folders()
+}
+
+#[tauri::command(async)]
+fn add_folder(svc: Svc, path: String, kind: String) -> Result<Vec<FolderDto>, String> {
+    svc.inner().add_folder(&path, &kind)
+}
+
+#[tauri::command(async)]
+fn remove_folder(svc: Svc, id: i64) -> Result<Vec<FolderDto>, String> {
+    svc.remove_folder(id)
+}
+
+#[tauri::command(async)]
+fn scan_status(svc: Svc) -> ScanStatus {
+    svc.scan_status()
+}
+
+#[tauri::command(async)]
+fn rescan(svc: Svc) -> ScanStatus {
+    svc.inner().rescan();
+    svc.scan_status()
+}
+
+#[tauri::command(async)]
+fn videos(svc: Svc) -> Result<Vec<VideoDto>, String> {
+    svc.videos()
+}
+
+#[tauri::command(async)]
+fn pictures(svc: Svc) -> Result<Vec<PictureAlbumDto>, String> {
+    svc.pictures()
+}
+
+#[tauri::command(async)]
+fn podcasts(svc: Svc) -> Result<Vec<AlbumDto>, String> {
+    svc.podcasts()
 }
 
 #[tauri::command(async)]
@@ -130,6 +171,7 @@ pub fn run() {
     let art_svc = svc.clone();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(svc)
         .setup(|app| {
             let svc = app.state::<Arc<Service>>().inner().clone();
@@ -156,6 +198,14 @@ pub fn run() {
             device_status,
             device_collection,
             device_info,
+            folders,
+            add_folder,
+            remove_folder,
+            scan_status,
+            rescan,
+            videos,
+            pictures,
+            podcasts,
             device_rename,
             device_refresh,
             device_release,

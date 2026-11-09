@@ -143,7 +143,7 @@ fn library(cmd: LibCmd) -> Result<()> {
     let mut lib = open_library()?;
     match cmd {
         LibCmd::Add { path } => {
-            let f = lib.add_folder(&path)?;
+            let f = lib.add_folder(&path, squirt_library::Kind::Music)?;
             println!("watching {}", f.path.display());
         }
         LibCmd::Folders => {

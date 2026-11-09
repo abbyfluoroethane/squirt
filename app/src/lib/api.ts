@@ -26,6 +26,8 @@ export interface DeviceStatus {
 export interface Track {
 	id?: number;
 	codec?: string;
+	/** Release date; podcast episodes show this. */
+	date?: string | null;
 	disc: number;
 	n: number;
 	title: string;
@@ -165,8 +167,78 @@ export interface DeviceApi {
 	connect(): Promise<DeviceInfo>;
 }
 
+export type MediaKind = 'music' | 'podcast' | 'video' | 'picture';
+
+export interface Folder {
+	id: number;
+	path: string;
+	kind: MediaKind;
+}
+
+export interface ScanStatus {
+	running: boolean;
+	done: number;
+	total: number;
+	last: string | null;
+	errors: number;
+}
+
+export interface VideoItem {
+	id: number;
+	title: string;
+	path: string;
+	size: number;
+	durationMs: number;
+	width: number | null;
+	height: number | null;
+	codec: string | null;
+	/** Thumbnail URL. */
+	thumb: string | null;
+}
+
+export interface PictureItem {
+	id: number;
+	album: string;
+	path: string;
+	size: number;
+	width: number | null;
+	height: number | null;
+	thumb: string | null;
+}
+
+export interface PictureAlbum {
+	name: string;
+	count: number;
+	cover: string | null;
+	pictures: PictureItem[];
+}
+
+export interface MediaApi {
+	folders(): Promise<Folder[]>;
+	addFolder(path: string, kind: MediaKind): Promise<Folder[]>;
+	removeFolder(id: number): Promise<Folder[]>;
+	scanStatus(): Promise<ScanStatus>;
+	rescan(): Promise<ScanStatus>;
+	videos(): Promise<VideoItem[]>;
+	pictures(): Promise<PictureAlbum[]>;
+	podcasts(): Promise<Album[]>;
+	/** URL to play a video or show a full-size picture. */
+	fileUrl(kind: 'video' | 'picture', item: { id: number; path: string }): Promise<string>;
+}
+
+/** Asks the user for a folder: the system picker in the app, a prompt in a browser. */
+export async function pickFolder(title: string): Promise<string | null> {
+	if (isTauri) {
+		const { open } = await import('@tauri-apps/plugin-dialog');
+		const r = await open({ directory: true, multiple: false, title });
+		return typeof r === 'string' ? r : null;
+	}
+	return window.prompt(`${title}\n\nfolder path (e.g. ~/Movies):`);
+}
+
 export interface Api {
 	social: SocialApi;
+	media: MediaApi;
 	devices: DeviceApi;
 	device(): Promise<DeviceStatus>;
 	collection(): Promise<Album[]>;
@@ -383,8 +455,42 @@ function mockDevices(): DeviceApi {
 	};
 }
 
+function mockMedia(): MediaApi {
+	let folders: Folder[] = [
+		{ id: 1, path: '~/Music/gamdl', kind: 'music' },
+		{ id: 2, path: '~/Movies', kind: 'video' },
+		{ id: 3, path: '~/Pictures', kind: 'picture' }
+	];
+	const videos: VideoItem[] = ['Worlds Live at Second Sky', 'Snake Eyes (Official Video)', 'Frost Children - SPEED RUN (Live)', 'peer2peer visualizer'].map((title, i) => ({
+		id: i + 1, title, path: '', size: 80e6 + i * 30e6, durationMs: 180_000 + i * 95_000, width: 1920, height: 1080, codec: 'h264', thumb: null
+	}));
+	const pics = (album: string, n: number, start: number): PictureItem[] =>
+		Array.from({ length: n }, (_, i) => ({ id: start + i, album, path: '', size: 3e6, width: 4032, height: 3024, thumb: null }));
+	return {
+		folders: async () => folders,
+		async addFolder(path, kind) {
+			folders = [...folders, { id: Date.now(), path, kind }];
+			return folders;
+		},
+		async removeFolder(id) {
+			folders = folders.filter((f) => f.id !== id);
+			return folders;
+		},
+		scanStatus: async () => ({ running: false, done: 0, total: 0, last: '1,024 files: 0 new, 0 changed, 0 removed', errors: 0 }),
+		rescan: async () => ({ running: true, done: 0, total: 1024, last: null, errors: 0 }),
+		videos: async () => videos,
+		pictures: async () => [
+			{ name: 'second sky 2019', count: 12, cover: null, pictures: pics('second sky 2019', 12, 100) },
+			{ name: 'zune hd', count: 5, cover: null, pictures: pics('zune hd', 5, 200) }
+		],
+		podcasts: async () => [],
+		fileUrl: async () => ''
+	};
+}
+
 const mock: Api = {
 	social: mockSocial(),
+	media: mockMedia(),
 	devices: mockDevices(),
 	player: mockPlayer(() => MOCK_COLLECTION.flatMap((a) => a.tracks)),
 	async device() {
@@ -423,6 +529,19 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 	return invoke<T>(cmd, args);
 }
 
+async function artUrl(): Promise<(k: string) => string> {
+	const { convertFileSrc } = await import('@tauri-apps/api/core');
+	return (k) => convertFileSrc(k, 'squirt');
+}
+
+function withThumbs<T extends { thumb: string | null }>(items: T[], url: (k: string) => string): T[] {
+	return items.map((i) => ({ ...i, thumb: i.thumb ? url(i.thumb) : null }));
+}
+
+function pictureThumbs(albums: PictureAlbum[], url: (k: string) => string): PictureAlbum[] {
+	return albums.map((a) => ({ ...a, cover: a.cover ? url(a.cover) : null, pictures: withThumbs(a.pictures, url) }));
+}
+
 async function tauriArt(albums: Album[]): Promise<Album[]> {
 	const { convertFileSrc } = await import('@tauri-apps/api/core');
 	return withArt(albums, (k) => convertFileSrc(k, 'squirt'));
@@ -440,6 +559,20 @@ const tauriSocial: SocialApi = {
 
 const tauri: Api = {
 	social: tauriSocial,
+	media: {
+		folders: () => call('folders'),
+		addFolder: (path, kind) => call('add_folder', { path, kind }),
+		removeFolder: (id) => call('remove_folder', { id }),
+		scanStatus: () => call('scan_status'),
+		rescan: () => call('rescan'),
+		videos: async () => withThumbs(await call<VideoItem[]>('videos'), await artUrl()),
+		pictures: async () => pictureThumbs(await call<PictureAlbum[]>('pictures'), await artUrl()),
+		podcasts: async () => tauriArt(await call<Album[]>('podcasts')),
+		async fileUrl(_kind, item) {
+			const { convertFileSrc } = await import('@tauri-apps/api/core');
+			return convertFileSrc(item.path);
+		}
+	},
 	devices: {
 		info: () => call('device_info'),
 		rename: (name) => call('device_rename', { name }),
@@ -467,7 +600,20 @@ async function devPost<T>(path: string): Promise<T> {
 	return body;
 }
 
+const devArt = (k: string) => `/api/art/${k}`;
+
 const devApi: Api = {
+	media: {
+		folders: async () => (await fetch('/api/folders')).json(),
+		addFolder: (path, kind) => devPost(`folders/add?path=${encodeURIComponent(path)}&kind=${kind}`),
+		removeFolder: (id) => devPost(`folders/remove?id=${id}`),
+		scanStatus: async () => (await fetch('/api/scan')).json(),
+		rescan: () => devPost('scan/start'),
+		videos: async () => withThumbs(await (await fetch('/api/videos')).json(), devArt),
+		pictures: async () => pictureThumbs(await (await fetch('/api/pictures')).json(), devArt),
+		podcasts: async () => withArt(await (await fetch('/api/podcasts')).json(), devArt),
+		fileUrl: async (kind, item) => `/api/media/${kind}/${item.id}`
+	},
 	devices: {
 		info: async () => (await fetch('/api/device/info')).json(),
 		rename: (name) => devPost(`device/rename?name=${encodeURIComponent(name)}`),

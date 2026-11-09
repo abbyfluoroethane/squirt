@@ -272,6 +272,8 @@ impl Service {
 
     /// Starts the background loop that drives Last.fm and Discord.
     pub fn start_background(self: &Arc<Self>) {
+        // Pick up anything added to the watched folders while Squirt was closed.
+        self.rescan();
         let svc = self.clone();
         std::thread::Builder::new()
             .name("squirt-social".into())

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { connect, isTauri, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type Track } from '$lib/api';
+	import { connect, isTauri, type PictureAlbum, type VideoItem, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type Track } from '$lib/api';
 	import { bytes, duration } from '$lib/format';
 	import { theme, type Theme } from '$lib/theme.svelte';
 	import Pivot from '$lib/components/zune/Pivot.svelte';
@@ -16,6 +16,10 @@
 	import SquirtMark from '$lib/components/zune/SquirtMark.svelte';
 	import Social from '$lib/components/zune/Social.svelte';
 	import DeviceInfo from '$lib/components/zune/DeviceInfo.svelte';
+	import LibraryFolders from '$lib/components/zune/LibraryFolders.svelte';
+	import VideosView from '$lib/components/zune/VideosView.svelte';
+	import PicturesView from '$lib/components/zune/PicturesView.svelte';
+	import PodcastsView from '$lib/components/zune/PodcastsView.svelte';
 	import { tick } from 'svelte';
 
 	const PIVOTS = ['collection', 'device', 'social', 'settings'] as const;
@@ -42,6 +46,9 @@
 	let device = $state<DeviceStatus | null>(null);
 	let albums = $state<Album[]>([]);
 	let deviceAlbums = $state<Album[]>([]);
+	let videos = $state<VideoItem[]>([]);
+	let pictureAlbums = $state<PictureAlbum[]>([]);
+	let podcasts = $state<Album[]>([]);
 	let fullscreen = $state(false);
 	let artist = $state<string | null>(null);
 	let selectedId = $state<string | null>(null);
@@ -62,6 +69,9 @@
 			// Deep links for development: #device, #now-playing.
 			if (location.hash === '#device') setPivot('device');
 			if (location.hash === '#social') setPivot('social');
+			if (location.hash === '#settings') setPivot('settings');
+			if (location.hash === '#videos') subpivot = 'videos';
+			if (location.hash === '#pictures') subpivot = 'pictures';
 			if (location.hash === '#now-playing') fullscreen = true;
 			// Notice the Zune being plugged in or out; reload what's on it when it changes.
 			timers.push(
@@ -77,7 +87,13 @@
 	});
 
 	async function reload(a: Api) {
-		[albums, deviceAlbums] = await Promise.all([a.collection(), a.deviceCollection()]);
+		[albums, deviceAlbums, videos, pictureAlbums, podcasts] = await Promise.all([
+			a.collection(),
+			a.deviceCollection(),
+			a.media.videos(),
+			a.media.pictures(),
+			a.media.podcasts()
+		]);
 	}
 
 	/** Shows an artist (and optionally one of their albums) in the collection. */
@@ -92,7 +108,7 @@
 	}
 
 	// Track id -> track and album, for the now-playing line.
-	const byId = $derived(new Map(albums.flatMap((a) => a.tracks.map((t) => [t.id, { t, a }] as const))));
+	const byId = $derived(new Map([...albums, ...podcasts].flatMap((a) => a.tracks.map((t) => [t.id, { t, a }] as const))));
 	const nowPlaying = $derived(player.trackId !== null ? byId.get(player.trackId) : undefined);
 
 	async function playAlbum(al: Album, start = 0) {
@@ -126,6 +142,8 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
+		// A video or picture viewer handles its own keys.
+		if (document.querySelector('[aria-label="video player"], [aria-label="picture viewer"]')) return;
 		if (e.code === 'Escape' && fullscreen) {
 			fullscreen = false;
 			return;
@@ -169,7 +187,7 @@
 		{#key pivot}
 			{#if pivot === 'collection' || pivot === 'device'}
 				<div class="metro-enter" style={enterOffset}>
-					<Pivot items={pivot === 'device' ? DEVICE_SUBPIVOTS : SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={['videos', 'pictures', 'podcasts']} />
+					<Pivot items={pivot === 'device' ? DEVICE_SUBPIVOTS : SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={pivot === 'device' ? ['videos', 'pictures', 'podcasts'] : []} />
 				</div>
 			{/if}
 		{/key}
@@ -182,7 +200,12 @@
 		{#if pivot === 'social'}
 			{#if api}<Social social={api.social} />{/if}
 		{:else if pivot === 'settings'}
-			<section class="flex max-w-xl flex-col gap-8">
+			<section class="flex min-w-0 flex-1 gap-14 overflow-y-auto pr-2">
+			<div class="flex w-[34rem] max-w-full shrink-0 flex-col gap-3">
+				<h2 class="subpivot metro-enter" style="--i: 0">library folders</h2>
+				{#if api}<LibraryFolders media={api.media} onScanned={() => api && reload(api)} />{/if}
+			</div>
+			<div class="flex max-w-md flex-col gap-8">
 				<div class="metro-enter flex flex-col gap-3" style="--i: 1">
 					<h2 class="subpivot">theme</h2>
 					<div class="flex gap-2">
@@ -195,7 +218,14 @@
 					<h2 class="subpivot">mtpz keys</h2>
 					<p class="text-muted-foreground">Read from <code class="font-mono text-foreground">~/.mtpz-data</code>. Squirt does not include keys.</p>
 				</div>
+			</div>
 			</section>
+		{:else if pivot === 'collection' && subpivot === 'videos'}
+			{#if api}<VideosView media={api.media} {videos} onPlay={() => { if (player.status === 'playing') act((a) => a.player.toggle())(); }} />{/if}
+		{:else if pivot === 'collection' && subpivot === 'pictures'}
+			{#if api}<PicturesView media={api.media} albums={pictureAlbums} />{/if}
+		{:else if pivot === 'collection' && subpivot === 'podcasts'}
+			<PodcastsView shows={podcasts} playingId={player.trackId} onPlay={(s, i) => playAlbum(s, i)} />
 		{:else if pivot === 'device' && subpivot === 'info'}
 			{#if api}<DeviceInfo devices={api.devices} onChange={async () => { if (api) { device = await api.device(); await reload(api); } }} />{/if}
 		{:else if pivot === 'device' && !device?.connected}

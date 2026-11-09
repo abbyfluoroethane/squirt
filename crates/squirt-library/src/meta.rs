@@ -57,6 +57,8 @@ pub struct TrackMeta {
     pub bitrate_kbps: Option<u32>,
     /// Embedded cover art (front cover preferred), or cover.jpg/folder.jpg next to the file.
     pub art: Option<Vec<u8>>,
+    /// Release date as "YYYY-MM-DD" (or "YYYY" when that is all the tag has).
+    pub date: Option<String>,
 }
 
 fn codec_of(path: &Path, ft: FileType) -> Codec {
@@ -134,6 +136,11 @@ pub fn read_track(path: &Path) -> Result<TrackMeta, String> {
         duration_ms: props.duration().as_millis() as u64,
         codec: codec_of(path, tagged.file_type()),
         bitrate_kbps: props.audio_bitrate().or(props.overall_bitrate()),
+        date: tag.and_then(|t| t.date()).map(|d| match (d.month, d.day) {
+            (Some(m), Some(day)) => format!("{:04}-{m:02}-{day:02}", d.year),
+            (Some(m), None) => format!("{:04}-{m:02}", d.year),
+            _ => format!("{:04}", d.year),
+        }),
         art,
     })
 }

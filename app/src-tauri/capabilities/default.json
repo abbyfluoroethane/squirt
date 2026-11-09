@@ -18,6 +18,7 @@
           "url": "https://last.fm/*"
         }
       ]
-    }
+    },
+    "dialog:allow-open"
   ]
 }

@@ -43,7 +43,48 @@ fn error(e: String) -> Response<std::io::Cursor<Vec<u8>>> {
     Response::from_string(json!({ "error": e }).to_string()).with_status_code(500)
 }
 
-fn handle(svc: &Service, req: Request) {
+fn content_type(path: &std::path::Path) -> &'static str {
+    match path.extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
+        Some("mp4" | "m4v") => "video/mp4",
+        Some("mov") => "video/quicktime",
+        Some("webm") => "video/webm",
+        Some("mkv") => "video/x-matroska",
+        Some("wmv") => "video/x-ms-wmv",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("png") => "image/png",
+        Some("gif") => "image/gif",
+        Some("bmp") => "image/bmp",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Serves a file, honouring a `Range: bytes=a-b` header so video can seek.
+fn file_response(path: &std::path::Path, range: Option<&str>) -> Response<Box<dyn std::io::Read + Send>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return Response::new(404.into(), vec![], Box::new(std::io::empty()), Some(0), None);
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let ct = Header::from_bytes("Content-Type", content_type(path)).unwrap();
+    let accept = Header::from_bytes("Accept-Ranges", "bytes").unwrap();
+    let parsed = range.and_then(|r| r.strip_prefix("bytes=")).and_then(|r| {
+        let (a, b) = r.split_once('-')?;
+        let start: u64 = a.parse().ok()?;
+        let end: u64 = if b.is_empty() { len.saturating_sub(1) } else { b.parse().ok()? };
+        (start <= end && end < len).then_some((start, end))
+    });
+    match parsed {
+        Some((start, end)) => {
+            let _ = f.seek(SeekFrom::Start(start));
+            let n = end - start + 1;
+            let cr = Header::from_bytes("Content-Range", format!("bytes {start}-{end}/{len}")).unwrap();
+            Response::new(206.into(), vec![ct, accept, cr], Box::new(f.take(n)), Some(n as usize), None)
+        }
+        None => Response::new(200.into(), vec![ct, accept], Box::new(f), Some(len as usize), None),
+    }
+}
+
+fn handle(svc: &Arc<Service>, req: Request) {
     let full = req.url().to_string();
     let path = full.split('?').next().unwrap_or("").to_string();
     let q = |k: &str| query(&full, k);
@@ -51,6 +92,32 @@ fn handle(svc: &Service, req: Request) {
         "/api/health" => json_response(&json!({ "ok": true })),
         "/api/collection" => svc.collection().map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/device" => json_response(&svc.device_status()),
+        "/api/folders" => svc.folders().map(|v| json_response(&v)).unwrap_or_else(error),
+        "/api/folders/add" => {
+            let (path, kind) = (url_decode(&q("path").unwrap_or_default()), q("kind").unwrap_or_default());
+            svc.add_folder(&path, &kind).map(|v| json_response(&v)).unwrap_or_else(error)
+        }
+        "/api/folders/remove" => svc.remove_folder(q("id").and_then(|v| v.parse().ok()).unwrap_or(-1)).map(|v| json_response(&v)).unwrap_or_else(error),
+        "/api/scan" => json_response(&svc.scan_status()),
+        "/api/scan/start" => {
+            svc.rescan();
+            json_response(&svc.scan_status())
+        }
+        "/api/videos" => svc.videos().map(|v| json_response(&v)).unwrap_or_else(error),
+        "/api/pictures" => svc.pictures().map(|v| json_response(&v)).unwrap_or_else(error),
+        "/api/podcasts" => svc.podcasts().map(|v| json_response(&v)).unwrap_or_else(error),
+        p if p.starts_with("/api/media/") => {
+            let mut parts = p.trim_start_matches("/api/media/").splitn(2, '/');
+            let (kind, id) = (parts.next().unwrap_or(""), parts.next().and_then(|i| i.parse().ok()).unwrap_or(-1));
+            let range = req.headers().iter().find(|h| h.field.equiv("Range")).map(|h| h.value.as_str().to_string());
+            match svc.media_path(kind, id) {
+                Some(path) => {
+                    let _ = req.respond(file_response(&path, range.as_deref()));
+                    return;
+                }
+                None => Response::from_string("").with_status_code(404),
+            }
+        }
         "/api/device/info" => json_response(&svc.device_info()),
         "/api/device/rename" => {
             let name = q("name").map(|n| url_decode(&n)).unwrap_or_default();

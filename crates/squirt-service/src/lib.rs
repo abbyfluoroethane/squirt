@@ -12,7 +12,7 @@ use squirt_mtp::mtpz::MtpzKeys;
 use squirt_player::{Event, Player, Status};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod social;
@@ -38,6 +38,8 @@ pub struct TrackDto {
     pub size: u64,
     pub codec: String,
     pub on_device: bool,
+    /// Release date (podcast episodes show this).
+    pub date: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,6 +156,61 @@ pub struct DeviceInfoDto {
     pub finish: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderDto {
+    pub id: i64,
+    pub path: String,
+    pub kind: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanStatus {
+    pub running: bool,
+    pub done: usize,
+    pub total: usize,
+    /// Summary of the last finished scan.
+    pub last: Option<String>,
+    pub errors: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoDto {
+    pub id: i64,
+    pub title: String,
+    pub path: String,
+    pub size: u64,
+    pub duration_ms: u64,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub codec: Option<String>,
+    /// Art key (`lib/<key>`).
+    pub thumb: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureDto {
+    pub id: i64,
+    pub album: String,
+    pub path: String,
+    pub size: u64,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub thumb: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PictureAlbumDto {
+    pub name: String,
+    pub count: u32,
+    pub cover: Option<String>,
+    pub pictures: Vec<PictureDto>,
+}
+
 // ---------------------------------------------------------------- service
 
 struct Playback {
@@ -162,6 +219,7 @@ struct Playback {
 }
 
 pub struct Service {
+    scan: Mutex<ScanStatus>,
     lib: Mutex<Library>,
     player: Mutex<Option<Playback>>,
     device: Mutex<DeviceSlot>,
@@ -173,6 +231,7 @@ impl Service {
         let (db, art) = Library::default_dirs().ok_or("no data directory")?;
         let social_path = db.with_file_name("social.json");
         Ok(Self {
+            scan: Mutex::new(ScanStatus::default()),
             lib: Mutex::new(Library::open(&db, &art).map_err(err)?),
             player: Mutex::new(None),
             device: Mutex::new(DeviceSlot::default()),
@@ -208,6 +267,7 @@ impl Service {
                     duration_ms: t.duration_ms,
                     size: t.size,
                     codec: t.codec,
+                    date: t.date,
                 })
                 .collect();
             out.push(AlbumDto {
@@ -222,6 +282,170 @@ impl Service {
             });
         }
         Ok(out)
+    }
+
+    // --------------------------------------------------------- folders
+
+    pub fn folders(&self) -> Result<Vec<FolderDto>> {
+        Ok(self
+            .lib
+            .lock()
+            .unwrap()
+            .folders()
+            .map_err(err)?
+            .into_iter()
+            .map(|f| FolderDto { id: f.id, path: f.path.to_string_lossy().into_owned(), kind: f.kind.as_str() })
+            .collect())
+    }
+
+    /// Watches a folder for a kind of media ("music", "podcast", "video",
+    /// "picture"), then rescans in the background.
+    pub fn add_folder(self: &Arc<Self>, path: &str, kind: &str) -> Result<Vec<FolderDto>> {
+        let kind = squirt_library::Kind::parse(kind).ok_or("unknown media kind")?;
+        let path = expand_home(path);
+        self.lib.lock().unwrap().add_folder(&path, kind).map_err(err)?;
+        self.rescan();
+        self.folders()
+    }
+
+    /// Stops watching a folder; its files are forgotten (not deleted).
+    pub fn remove_folder(&self, id: i64) -> Result<Vec<FolderDto>> {
+        self.lib.lock().unwrap().remove_folder(id).map_err(err)?;
+        self.folders()
+    }
+
+    pub fn scan_status(&self) -> ScanStatus {
+        self.scan.lock().unwrap().clone()
+    }
+
+    /// Rescans every watched folder in the background, on its own database
+    /// connection so browsing isn't blocked. Does nothing if one is running.
+    pub fn rescan(self: &Arc<Self>) {
+        {
+            let mut s = self.scan.lock().unwrap();
+            if s.running {
+                return;
+            }
+            *s = ScanStatus { running: true, last: s.last.clone(), ..Default::default() };
+        }
+        let svc = self.clone();
+        std::thread::Builder::new()
+            .name("squirt-scan".into())
+            .spawn(move || {
+                let result = Library::default_dirs()
+                    .ok_or_else(|| "no data directory".to_string())
+                    .and_then(|(db, art)| Library::open(&db, &art).map_err(err))
+                    .and_then(|mut lib| {
+                        lib.scan(&mut |p| {
+                            let mut s = svc.scan.lock().unwrap();
+                            s.done = p.done;
+                            s.total = p.total;
+                        })
+                        .map_err(err)
+                    });
+                let mut s = svc.scan.lock().unwrap();
+                s.running = false;
+                match result {
+                    Ok(r) => {
+                        s.done = r.seen;
+                        s.total = r.seen;
+                        s.errors = r.errors.len();
+                        s.last = Some(format!("{} files: {} new, {} changed, {} removed", r.seen, r.added, r.updated, r.removed));
+                    }
+                    Err(e) => s.last = Some(format!("scan failed: {e}")),
+                }
+            })
+            .expect("spawn scan thread");
+    }
+
+    // ---------------------------------------------------- other media
+
+    pub fn videos(&self) -> Result<Vec<VideoDto>> {
+        Ok(self
+            .lib
+            .lock()
+            .unwrap()
+            .videos()
+            .map_err(err)?
+            .into_iter()
+            .map(|v| VideoDto {
+                id: v.id,
+                title: v.title,
+                path: v.path.to_string_lossy().into_owned(),
+                size: v.size,
+                duration_ms: v.duration_ms,
+                width: v.width,
+                height: v.height,
+                codec: v.codec,
+                thumb: v.thumb.map(|k| format!("lib/{k}")),
+            })
+            .collect())
+    }
+
+    pub fn pictures(&self) -> Result<Vec<PictureAlbumDto>> {
+        let lib = self.lib.lock().unwrap();
+        let mut out = Vec::new();
+        for a in lib.picture_albums().map_err(err)? {
+            let pictures = lib
+                .pictures(&a.name)
+                .map_err(err)?
+                .into_iter()
+                .map(|p| PictureDto {
+                    id: p.id,
+                    album: p.album,
+                    path: p.path.to_string_lossy().into_owned(),
+                    size: p.size,
+                    width: p.width,
+                    height: p.height,
+                    thumb: p.thumb.map(|k| format!("lib/{k}")),
+                })
+                .collect();
+            out.push(PictureAlbumDto { name: a.name, count: a.count, cover: a.cover.map(|k| format!("lib/{k}")), pictures });
+        }
+        Ok(out)
+    }
+
+    /// Podcast shows as albums; episodes newest first.
+    pub fn podcasts(&self) -> Result<Vec<AlbumDto>> {
+        let lib = self.lib.lock().unwrap();
+        let mut out = Vec::new();
+        for show in lib.podcast_shows().map_err(err)? {
+            let tracks = lib
+                .podcast_episodes(&show.title)
+                .map_err(err)?
+                .into_iter()
+                .enumerate()
+                .map(|(i, t)| TrackDto {
+                    id: t.id,
+                    disc: 1,
+                    n: (i + 1) as u32,
+                    title: t.title,
+                    artist: t.artist,
+                    duration_ms: t.duration_ms,
+                    size: t.size,
+                    codec: t.codec,
+                    on_device: false,
+                    date: t.date,
+                })
+                .collect();
+            out.push(AlbumDto {
+                id: format!("podcast\u{1f}{}", show.title),
+                hue: hue(&show.title),
+                art: show.art.map(|k| format!("lib/{k}")),
+                title: show.title,
+                artist: show.artist,
+                year: show.year,
+                genre: show.genre,
+                tracks,
+            });
+        }
+        Ok(out)
+    }
+
+    /// File path of a video or picture, for playback/viewing.
+    pub fn media_path(&self, kind: &str, id: i64) -> Option<PathBuf> {
+        let table = if kind == "video" { "videos" } else { "pictures" };
+        self.lib.lock().unwrap().media_path(table, id).ok().flatten()
     }
 
     /// Bytes of an art image by key (`lib/<key>` or `dev/<handle>`), as JPEG.
@@ -469,6 +693,7 @@ impl Service {
                             }
                             .into(),
                             on_device: true,
+                            date: None,
                         })
                         .collect(),
                     title,
@@ -612,6 +837,16 @@ fn device_finish(z: &mut Zune) -> Option<String> {
         return None;
     }
     Some(if sum / count as f64 > 110.0 { "platinum" } else { "slate" }.into())
+}
+
+/// Expands a leading `~` to the home directory.
+fn expand_home(p: &str) -> PathBuf {
+    match p.strip_prefix("~") {
+        Some(rest) => std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(rest.trim_start_matches(['/', '\\'])))
+            .unwrap_or_else(|| PathBuf::from(p)),
+        None => PathBuf::from(p),
+    }
 }
 
 fn problem(dev: &mut DeviceSlot, msg: String) -> DeviceStatus {
