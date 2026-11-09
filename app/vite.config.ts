@@ -6,7 +6,10 @@ import { defineConfig } from 'vite';
 export default defineConfig({
 	server: {
 		// `squirt serve` provides the real library to the browser preview.
-		proxy: { '/api': 'http://127.0.0.1:5190' }
+		proxy: { '/api': 'http://127.0.0.1:5190' },
+		// Transform the app's entry when the dev server starts, not when the
+		// window first asks for it.
+		warmup: { clientFiles: ['./src/routes/+layout.svelte', './src/routes/+page.svelte'] }
 	},
 	plugins: [
 		tailwindcss(),

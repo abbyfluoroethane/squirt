@@ -72,6 +72,50 @@ impl Kind {
     }
 }
 
+/// App libraries that look like folders on macOS. Their insides are the
+/// app's own files (originals, thumbnails, caches), not the user's media.
+const PACKAGE_EXTENSIONS: &[&str] = &[
+    "photoslibrary", "photolibrary", "musiclibrary", "tvlibrary", "imovielibrary", "fcpbundle", "app", "bundle",
+];
+
+/// Every entry under `root`, skipping hidden files and folders and app
+/// libraries (see [`PACKAGE_EXTENSIONS`]).
+fn walk(root: &Path) -> impl Iterator<Item = walkdir::DirEntry> {
+    walkdir::WalkDir::new(root)
+        .follow_links(true)
+        .into_iter()
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            let package = e.file_type().is_dir()
+                && e.path().extension().is_some_and(|x| PACKAGE_EXTENSIONS.contains(&x.to_string_lossy().to_lowercase().as_str()));
+            !name.starts_with('.') && !package
+        })
+        .filter_map(|e| e.ok())
+}
+
+/// Counts the files of one kind under `root`, stopping at `cap` or after
+/// `budget` (a large folder on a slow disk must not hold up setup).
+/// Returns the count and whether it stopped early.
+pub fn count_media(root: &Path, kind: Kind, cap: usize, budget: std::time::Duration) -> (usize, bool) {
+    let start = std::time::Instant::now();
+    let mut n = 0;
+    for (i, e) in walk(root).enumerate() {
+        if e.file_type().is_file() && kind.matches(e.path()) {
+            n += 1;
+            if n >= cap {
+                return (n, true);
+            }
+        }
+        if i % 256 == 0 && start.elapsed() > budget {
+            return (n, true);
+        }
+    }
+    (n, false)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Folder {
     pub id: i64,
@@ -311,10 +355,9 @@ impl Library {
         let mut files: Vec<(i64, Kind, PathBuf)> = Vec::new();
         let mut media_files: Vec<(i64, Kind, PathBuf, PathBuf)> = Vec::new();
         for f in &folders {
-            for entry in walkdir::WalkDir::new(&f.path).follow_links(true).into_iter().filter_map(|e| e.ok()) {
+            for entry in walk(&f.path) {
                 let p = entry.path();
-                let hidden = entry.file_name().to_string_lossy().starts_with('.');
-                if !entry.file_type().is_file() || hidden || !f.kind.matches(p) {
+                if !entry.file_type().is_file() || !f.kind.matches(p) {
                     continue;
                 }
                 match f.kind {
@@ -652,5 +695,20 @@ mod tests {
         let r = lib.scan(&mut |_| {}).unwrap();
         assert_eq!(r.seen, 1);
         assert_eq!(r.errors.len(), 1);
+    }
+
+    #[test]
+    fn skips_hidden_folders_and_app_libraries() {
+        let dir = tempfile::tempdir().unwrap();
+        let pics = dir.path().join("Pictures");
+        for sub in ["Trip", ".cache", "Photos Library.photoslibrary/originals"] {
+            std::fs::create_dir_all(pics.join(sub)).unwrap();
+        }
+        for f in ["a.jpg", "Trip/b.jpg", ".cache/c.jpg", "Photos Library.photoslibrary/originals/d.jpg", "notes.txt"] {
+            std::fs::write(pics.join(f), b"x").unwrap();
+        }
+        let long = std::time::Duration::from_secs(5);
+        assert_eq!(count_media(&pics, Kind::Picture, 100, long), (2, false));
+        assert_eq!(count_media(&pics, Kind::Picture, 1, long), (1, true));
     }
 }

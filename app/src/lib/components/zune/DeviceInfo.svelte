@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import type { DeviceApi, DeviceInfo } from '$lib/api';
 	import { bytes } from '$lib/format';
-	import ZuneHDArt from './ZuneHDArt.svelte';
+	import ZuneArt from './ZuneArt.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { BatteryHigh, BatteryMedium, BatteryLow, BatteryWarning, PencilSimple } from 'phosphor-svelte';
@@ -61,7 +61,7 @@
 
 <div class="flex min-h-0 flex-1 gap-14">
 	<div class="metro-enter flex shrink-0 items-start pt-2" style="--i: 1">
-		<ZuneHDArt height={430} lit={info?.connected ?? false} finish={info?.finish ?? 'platinum'} />
+		<ZuneArt height={430} lit={info?.connected ?? false} kind={info?.kind} finish={info?.finish} />
 	</div>
 
 	<div class="metro-enter flex min-w-0 max-w-2xl flex-1 flex-col gap-8 overflow-y-auto pr-2" style="--i: 2">

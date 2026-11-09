@@ -4,9 +4,10 @@
 	import { duration } from '$lib/format';
 	import { SkipBack, SkipForward, Play, Pause } from 'phosphor-svelte';
 	import AlbumArt from './AlbumArt.svelte';
+	import SeekBar from './SeekBar.svelte';
 
 	let {
-		state,
+		state: playback,
 		title,
 		artist,
 		album,
@@ -35,21 +36,15 @@
 		onSeek: (ms: number) => void;
 	} = $props();
 
-	const active = $derived(state.trackId !== null);
-	const pct = $derived(state.durationMs ? Math.min(100, (state.positionMs / state.durationMs) * 100) : 0);
-
-	function seekFrom(e: MouseEvent) {
-		if (!active || !state.durationMs) return;
-		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		onSeek(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * state.durationMs);
-	}
+	const active = $derived(playback.trackId !== null);
+	let scrubMs = $state<number | null>(null);
 </script>
 
 <div class="flex items-center gap-5">
 	<div class="flex items-center gap-2.5">
 		<button class="round size-8" onclick={onPrev} disabled={!active} aria-label="previous"><SkipBack size={14} weight="fill" /></button>
-		<button class="round size-11 border-2" onclick={onToggle} disabled={!active} aria-label={state.status === 'playing' ? 'pause' : 'play'}>
-			{#if state.status === 'playing'}<Pause size={18} weight="fill" />{:else}<Play size={18} weight="fill" class="translate-x-px" />{/if}
+		<button class="round size-11 border-2" onclick={onToggle} disabled={!active} aria-label={playback.status === 'playing' ? 'pause' : 'play'}>
+			{#if playback.status === 'playing'}<Pause size={18} weight="fill" />{:else}<Play size={18} weight="fill" class="translate-x-px" />{/if}
 		</button>
 		<button class="round size-8" onclick={onNext} disabled={!active} aria-label="next"><SkipForward size={14} weight="fill" /></button>
 	</div>
@@ -73,12 +68,9 @@
 			{/if}
 		</div>
 		<div class="flex items-center gap-2.5">
-			<span class="tabular w-9 text-[0.7rem] text-muted-foreground">{active ? duration(state.positionMs) : ''}</span>
-			<button class="group relative h-3 flex-1 cursor-pointer disabled:cursor-default" onclick={seekFrom} disabled={!active} aria-label="seek">
-				<span class="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 bg-muted"></span>
-				<span class="zune-gradient absolute top-1/2 left-0 h-[3px] -translate-y-1/2 transition-[width] duration-500 ease-linear" style:width="{pct}%"></span>
-			</button>
-			<span class="tabular w-9 text-right text-[0.7rem] text-muted-foreground">{active ? duration(state.durationMs) : ''}</span>
+			<span class="tabular w-9 text-[0.7rem] text-muted-foreground">{active ? duration(scrubMs ?? playback.positionMs) : ''}</span>
+			<SeekBar positionMs={playback.positionMs} durationMs={playback.durationMs} disabled={!active} {onSeek} bind:scrubMs />
+			<span class="tabular w-9 text-right text-[0.7rem] text-muted-foreground">{active ? duration(playback.durationMs) : ''}</span>
 		</div>
 	</div>
 </div>

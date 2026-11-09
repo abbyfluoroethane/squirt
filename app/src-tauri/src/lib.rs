@@ -2,8 +2,10 @@
 //! plus a `squirt://` protocol that serves album art to the webview.
 
 mod media;
+#[cfg(target_os = "macos")]
+mod menu;
 
-use squirt_service::{AlbumDto, DeviceInfoDto, DeviceStatus, FolderDto, PictureAlbumDto, ScanStatus, VideoDto, LastFmProfile, PlayerStateDto, Service, SocialStatus};
+use squirt_service::{SyncStatus, SetupStatus, SuggestedFolder, AlbumDto, DeviceInfoDto, DeviceStatus, FolderDto, PictureAlbumDto, ScanStatus, VideoDto, LastFmProfile, PlayerStateDto, Service, SocialStatus};
 use std::sync::Arc;
 use tauri::http::Response;
 use tauri::{Manager, State};
@@ -100,6 +102,11 @@ fn player_state(svc: Svc) -> PlayerStateDto {
 }
 
 #[tauri::command(async)]
+fn player_spectrum(svc: Svc, bands: usize) -> Vec<f32> {
+    svc.player_spectrum(bands)
+}
+
+#[tauri::command(async)]
 fn player_play(svc: Svc, ids: Vec<i64>, start: usize) -> Result<PlayerStateDto, String> {
     svc.play(ids, start)
 }
@@ -164,6 +171,41 @@ fn discord_set_enabled(svc: Svc, on: bool) -> Result<SocialStatus, String> {
     svc.discord_set_enabled(on)
 }
 
+#[tauri::command(async)]
+fn sync_tracks(svc: Svc, ids: Vec<i64>) -> Result<SyncStatus, String> {
+    svc.inner().sync_tracks(ids)
+}
+
+#[tauri::command(async)]
+fn device_remove(svc: Svc, ids: Vec<i64>) -> Result<usize, String> {
+    svc.device_remove(ids)
+}
+
+#[tauri::command(async)]
+fn sync_status(svc: Svc) -> SyncStatus {
+    svc.sync_status()
+}
+
+#[tauri::command(async)]
+fn setup_status(svc: Svc) -> SetupStatus {
+    svc.setup_status()
+}
+
+#[tauri::command(async)]
+fn setup_suggestions(svc: Svc) -> Vec<SuggestedFolder> {
+    svc.setup_suggestions()
+}
+
+#[tauri::command(async)]
+fn import_keys(svc: Svc, path: String) -> Result<SetupStatus, String> {
+    svc.import_keys(&path)
+}
+
+#[tauri::command(async)]
+fn finish_setup(svc: Svc) -> Result<SetupStatus, String> {
+    svc.finish_setup()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let svc = Arc::new(Service::open().expect("could not open the Squirt library"));
@@ -174,8 +216,24 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(svc)
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                let m = menu::build(app.handle())?;
+                app.set_menu(m)?;
+                app.on_menu_event(|app, event| menu::forward(app, event.id().as_ref()));
+            }
             let svc = app.state::<Arc<Service>>().inner().clone();
             media::init(app.handle(), svc);
+            // The window starts hidden and the page shows it once it has
+            // rendered. If the page never does (a script error, a slow dev
+            // server), show it anyway.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                if let Some(w) = handle.get_webview_window("main").filter(|w| !w.is_visible().unwrap_or(true)) {
+                    let _ = w.show();
+                }
+            });
             Ok(())
         })
         // squirt://localhost/<key>: album art by key (lib/<hash> or dev/<handle>).
@@ -186,6 +244,8 @@ pub fn run() {
                 let resp = match svc.art(&key) {
                     Some(bytes) => Response::builder()
                         .header("Content-Type", "image/jpeg")
+                        // Lets the page read the pixels (for colors from the cover).
+                        .header("Access-Control-Allow-Origin", "*")
                         .header("Cache-Control", "max-age=3600")
                         .body(bytes),
                     None => Response::builder().status(404).body(Vec::new()),
@@ -211,6 +271,7 @@ pub fn run() {
             device_release,
             device_connect,
             player_state,
+            player_spectrum,
             player_play,
             player_toggle,
             player_next,
@@ -223,7 +284,14 @@ pub fn run() {
             lastfm_disconnect,
             lastfm_set_enabled,
             lastfm_profile,
-            discord_set_enabled
+            discord_set_enabled,
+            setup_status,
+            sync_tracks,
+            sync_status,
+            device_remove,
+            setup_suggestions,
+            import_keys,
+            finish_setup
         ])
         .run(tauri::generate_context!())
         .expect("error while running Squirt");

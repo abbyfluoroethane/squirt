@@ -1,15 +1,18 @@
 <script lang="ts">
-	// Full-screen now playing, Zune-desktop style: blurred art behind, the
-	// artist's name drifting huge and faint across the back, big art and type.
+	// Full-screen now playing: big art and type over one of two backgrounds,
+	// glows in the cover's colors or a wave that follows the music.
 	import type { Album, PlayerState, Track } from '$lib/api';
 	import { duration } from '$lib/format';
 	import AlbumArt from './AlbumArt.svelte';
 	import { Slider } from '$lib/components/ui/slider';
 	import { ArrowLeft, Pause, Play, SkipBack, SkipForward, SpeakerHigh, SpeakerSimpleNone } from 'phosphor-svelte';
 	import { fade } from 'svelte/transition';
+	import ColorField from './now-playing/ColorField.svelte';
+	import Visualizer from './now-playing/Visualizer.svelte';
+	import SeekBar from './SeekBar.svelte';
 
 	let {
-		state,
+		state: playback,
 		track,
 		album,
 		upNext,
@@ -21,7 +24,8 @@
 		onSeek,
 		onArtist,
 		onAlbum,
-		onClose
+		onClose,
+		spectrum
 	}: {
 		state: PlayerState;
 		track: Track;
@@ -36,33 +40,66 @@
 		onArtist: () => void;
 		onAlbum: () => void;
 		onClose: () => void;
+		spectrum: (bands: number) => Promise<number[]>;
 	} = $props();
 
-	const pct = $derived(state.durationMs ? Math.min(100, (state.positionMs / state.durationMs) * 100) : 0);
-
-	function seekFrom(e: MouseEvent) {
-		if (!state.durationMs) return;
-		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		onSeek(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * state.durationMs);
+	// Background: glows in the cover's colors, or a spectrum wave over the
+	// blurred cover. Remembered between launches.
+	const BACKGROUNDS = ['color', 'wave'] as const;
+	type Background = (typeof BACKGROUNDS)[number];
+	const BG_KEY = 'squirt.nowPlayingBackground';
+	let background = $state<Background>(
+		(() => {
+			try {
+				const v = localStorage.getItem(BG_KEY);
+				if (v && (BACKGROUNDS as readonly string[]).includes(v)) return v as Background;
+			} catch {
+				// No storage; use the default.
+			}
+			return 'color';
+		})()
+	);
+	function setBackground(b: Background) {
+		background = b;
+		try {
+			localStorage.setItem(BG_KEY, b);
+		} catch {
+			// Not remembered.
+		}
 	}
+
+	let scrubMs = $state<number | null>(null);
 </script>
 
 <!-- Always dark, like the device. -->
 <div class="dark fixed inset-0 z-50 overflow-hidden bg-background text-foreground" transition:fade={{ duration: 180 }} role="dialog" aria-label="now playing">
-	{#if album.art}
-		<img src={album.art} alt="" class="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-40 blur-3xl" />
+	{#if background === 'color'}
+		<ColorField src={album.art} hue={album.hue} />
+		<div class="absolute inset-0 bg-gradient-to-t from-background/90 via-background/30 to-transparent"></div>
+	{:else}
+		{#if album.art}
+			<img src={album.art} alt="" class="pointer-events-none absolute inset-0 size-full scale-125 object-cover opacity-40 blur-3xl" />
+		{/if}
+		<div class="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/30"></div>
 	{/if}
-	<div class="absolute inset-0 bg-gradient-to-t from-background via-background/70 to-background/30"></div>
 
-	<!-- The artist's name, huge and faint, drifting. -->
-	<div class="drift pointer-events-none absolute top-[6%] left-0 text-[13rem] leading-none font-light whitespace-nowrap lowercase opacity-[0.07]" aria-hidden="true">
-		{track.artist} &nbsp; {track.artist} &nbsp; {track.artist}
-	</div>
+	{#if background === 'wave'}
+		<Visualizer {spectrum} />
+	{/if}
 
 	<div class="relative flex h-full flex-col px-12 pt-12 pb-10">
-		<button class="flex w-fit items-center gap-2 text-muted-foreground transition-colors hover:text-foreground" onclick={onClose}>
-			<ArrowLeft size={18} /><span class="subpivot">back</span>
-		</button>
+		<div class="flex items-center">
+			<button class="flex w-fit items-center gap-2 text-muted-foreground transition-colors hover:text-foreground" onclick={onClose}>
+				<ArrowLeft size={18} /><span class="subpivot">back</span>
+			</button>
+			<!-- Background picker. -->
+			<div class="ml-auto flex items-baseline gap-4 text-sm lowercase" role="radiogroup" aria-label="background">
+				<span class="text-xs text-faint">background</span>
+				{#each BACKGROUNDS as b (b)}
+					<button role="radio" aria-checked={background === b} class="transition-colors {background === b ? 'text-foreground' : 'text-faint hover:text-muted-foreground'}" onclick={() => setBackground(b)}>{b}</button>
+				{/each}
+			</div>
+		</div>
 
 		<div class="flex min-h-0 flex-1 items-end gap-12">
 			<div class="shadow-2xl shadow-black/60">
@@ -79,20 +116,17 @@
 				</div>
 
 				<div class="flex max-w-3xl flex-col gap-2">
-					<button class="relative h-4 w-full cursor-pointer" onclick={seekFrom} aria-label="seek">
-						<span class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-white/15"></span>
-						<span class="zune-gradient absolute top-1/2 left-0 h-1 -translate-y-1/2 transition-[width] duration-500 ease-linear" style:width="{pct}%"></span>
-					</button>
+					<div class="flex"><SeekBar positionMs={playback.positionMs} durationMs={playback.durationMs} {onSeek} bind:scrubMs thickness={4} /></div>
 					<div class="flex justify-between text-sm text-muted-foreground">
-						<span class="tabular">{duration(state.positionMs)}</span>
-						<span class="tabular">{duration(state.durationMs)}</span>
+						<span class="tabular">{duration(scrubMs ?? playback.positionMs)}</span>
+						<span class="tabular">{duration(playback.durationMs)}</span>
 					</div>
 				</div>
 
 				<div class="flex items-center gap-4">
 					<button class="round size-12" onclick={onPrev} aria-label="previous"><SkipBack size={20} weight="fill" /></button>
-					<button class="round size-16 border-2" onclick={onToggle} aria-label={state.status === 'playing' ? 'pause' : 'play'}>
-						{#if state.status === 'playing'}<Pause size={26} weight="fill" />{:else}<Play size={26} weight="fill" class="translate-x-0.5" />{/if}
+					<button class="round size-16 border-2" onclick={onToggle} aria-label={playback.status === 'playing' ? 'pause' : 'play'}>
+						{#if playback.status === 'playing'}<Pause size={26} weight="fill" />{:else}<Play size={26} weight="fill" class="translate-x-0.5" />{/if}
 					</button>
 					<button class="round size-12" onclick={onNext} aria-label="next"><SkipForward size={20} weight="fill" /></button>
 					<div class="ml-6 flex items-center gap-2.5 text-muted-foreground">
@@ -119,22 +153,6 @@
 </div>
 
 <style>
-	.drift {
-		animation: drift 90s linear infinite alternate;
-	}
-	@keyframes drift {
-		from {
-			transform: translateX(0);
-		}
-		to {
-			transform: translateX(-45%);
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.drift {
-			animation: none;
-		}
-	}
 	.round {
 		display: inline-flex;
 		align-items: center;

@@ -20,7 +20,9 @@ export interface DeviceStatus {
 	/** Set when a Zune is plugged in but cannot be used. */
 	problem?: string | null;
 	/** The device's color, read from its own icon. */
-	finish?: 'slate' | 'platinum' | null;
+	finish?: string | null;
+	/** Which body to draw: 'zunehd', 'zune30', 'zuneflash' or 'zunehdd'. */
+	kind?: string | null;
 }
 
 export interface Track {
@@ -35,6 +37,8 @@ export interface Track {
 	durationMs: number;
 	size: number;
 	onDevice: boolean;
+	/** The file on this computer; absent for songs only on the device. */
+	path?: string | null;
 }
 
 export interface Album {
@@ -50,13 +54,23 @@ export interface Album {
 	tracks: Track[];
 }
 
-export interface SyncProgress {
+/** Sending songs to the Zune (see DeviceApi.sync). */
+export interface SyncStatus {
+	/** Copying now, or songs still queued. */
 	active: boolean;
-	current?: string;
+	/** Songs finished in this run (sent, already there, or failed). */
 	done: number;
 	total: number;
 	bytesDone: number;
 	bytesTotal: number;
+	/** "artist — title" of the song being sent. */
+	current: string | null;
+	/** Library ids still to send, the current one first. */
+	pending: number[];
+	/** "title: reason" for each song that failed in this run. */
+	errors: string[];
+	/** Summary of the last finished run, e.g. "added 10 songs". */
+	last: string | null;
 }
 
 export type PlayStatus = 'stopped' | 'playing' | 'paused';
@@ -78,6 +92,8 @@ export interface PlayerApi {
 	prev(): Promise<PlayerState>;
 	seek(ms: number): Promise<PlayerState>;
 	volume(v: number): Promise<PlayerState>;
+	/** Visualizer levels, 0 to 1, low to high frequency; zeros when not playing. */
+	spectrum(bands: number): Promise<number[]>;
 }
 
 export interface ScrobbleEntry {
@@ -128,6 +144,13 @@ export interface SocialApi {
 	setDiscordEnabled(on: boolean): Promise<SocialStatus>;
 }
 
+/** Shows a file in Finder (Explorer, the file manager). Only in the app. */
+export async function revealFile(path: string) {
+	if (!isTauri) return;
+	const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+	await revealItemInDir(path);
+}
+
 /** Opens a web page in the user's browser. */
 export async function openExternal(url: string) {
 	if (isTauri) {
@@ -155,7 +178,9 @@ export interface DeviceInfo {
 	albums: number;
 	artists: number;
 	/** The device's color, read from its own icon; null if unknown. */
-	finish: 'slate' | 'platinum' | null;
+	finish: string | null;
+	/** Which body to draw: 'zunehd', 'zune30', 'zuneflash' or 'zunehdd'. */
+	kind?: string | null;
 }
 
 export interface DeviceApi {
@@ -165,6 +190,12 @@ export interface DeviceApi {
 	/** Let go of the device so other tools can use it. */
 	release(): Promise<DeviceInfo>;
 	connect(): Promise<DeviceInfo>;
+	/** Queues library songs to copy to the Zune; returns at once. */
+	sync(ids: number[]): Promise<SyncStatus>;
+	syncStatus(): Promise<SyncStatus>;
+	/** Removes songs from the Zune: device song ids (negative) or library
+	 *  ids (positive, matched to what's on the device). Returns the count. */
+	remove(ids: number[]): Promise<number>;
 }
 
 export type MediaKind = 'music' | 'podcast' | 'video' | 'picture';
@@ -236,7 +267,47 @@ export async function pickFolder(title: string): Promise<string | null> {
 	return window.prompt(`${title}\n\nfolder path (e.g. ~/Movies):`);
 }
 
+export interface SetupStatus {
+	/** Setup has run before (or the library had folders already). */
+	done: boolean;
+	/** The MTPZ key file is in place and readable. */
+	keys: boolean;
+	keysPath: string;
+	keysError: string | null;
+}
+
+export interface SuggestedFolder {
+	path: string;
+	kind: MediaKind;
+	count: number;
+	/** Counting stopped early; `count` is a lower bound. */
+	more: boolean;
+	watched: boolean;
+	/** A folder inside it is already in the library. */
+	partly: boolean;
+}
+
+export interface SetupApi {
+	status(): Promise<SetupStatus>;
+	/** The standard media folders that exist, with file counts. */
+	suggestions(): Promise<SuggestedFolder[]>;
+	/** Checks a key file and copies it to ~/.mtpz-data. */
+	importKeys(path: string): Promise<SetupStatus>;
+	finish(): Promise<SetupStatus>;
+}
+
+/** Asks the user for a file: the system picker in the app, a prompt in a browser. */
+export async function pickFile(title: string): Promise<string | null> {
+	if (isTauri) {
+		const { open } = await import('@tauri-apps/plugin-dialog');
+		const r = await open({ directory: false, multiple: false, title });
+		return typeof r === 'string' ? r : null;
+	}
+	return window.prompt(`${title}\n\nfile path:`);
+}
+
 export interface Api {
+	setup: SetupApi;
 	social: SocialApi;
 	media: MediaApi;
 	devices: DeviceApi;
@@ -326,6 +397,17 @@ function mockPlayer(tracks: () => Track[]): PlayerApi {
 		st.status = 'playing';
 	};
 	return {
+		// A fake spectrum: a 120 bpm kick in the lows, shimmer up top.
+		async spectrum(bands) {
+			if (st.status !== 'playing') return new Array(bands).fill(0);
+			const t = Date.now() / 1000;
+			const kick = Math.exp(-((t * 2) % 1) * 6);
+			return Array.from({ length: bands }, (_, i) => {
+				const x = i / bands;
+				const base = 0.75 - x * 0.45 + 0.08 * Math.sin(t * 3 + i * 0.7);
+				return Math.max(0, Math.min(1, base * (0.7 + 0.3 * Math.random()) + kick * Math.max(0, 0.35 - x)));
+			});
+		},
 		async state() {
 			return now();
 		},
@@ -451,9 +533,40 @@ function mockDevices(): DeviceApi {
 		async connect() {
 			info = { ...info, connected: true, released: false };
 			return ret();
+		},
+		// A pretend sync: about 0.6 s a song.
+		async sync(ids) {
+			const fresh = !sync.active;
+			if (fresh) sync = { ...idleSync(), last: sync.last };
+			const add = ids.filter((id) => !sync.pending.includes(id));
+			sync.pending.push(...add);
+			sync.total += add.length;
+			sync.bytesTotal += add.length * 8e6;
+			sync.active = sync.pending.length > 0;
+			if (fresh && sync.active) {
+				const tick = setInterval(() => {
+					sync.bytesDone = Math.min(sync.bytesTotal, sync.bytesDone + 4e6);
+					sync.done = Math.floor(sync.bytesDone / 8e6);
+					sync.pending = sync.pending.slice(sync.pending.length - (sync.total - sync.done));
+					sync.current = sync.pending.length ? `mock song ${sync.done + 1}` : null;
+					if (sync.done >= sync.total) {
+						clearInterval(tick);
+						sync = { ...sync, active: false, current: null, pending: [], last: `added ${sync.total} songs` };
+					}
+				}, 300);
+			}
+			return structuredClone(sync);
+		},
+		syncStatus: async () => structuredClone(sync),
+		async remove(ids) {
+			await new Promise((r) => setTimeout(r, 600));
+			return ids.length;
 		}
 	};
 }
+
+const idleSync = (): SyncStatus => ({ active: false, done: 0, total: 0, bytesDone: 0, bytesTotal: 0, current: null, pending: [], errors: [], last: null });
+let sync: SyncStatus = idleSync();
 
 function mockMedia(): MediaApi {
 	let folders: Folder[] = [
@@ -489,6 +602,16 @@ function mockMedia(): MediaApi {
 }
 
 const mock: Api = {
+	setup: {
+		status: async () => ({ done: true, keys: true, keysPath: '~/.mtpz-data', keysError: null }),
+		suggestions: async () => [
+			{ path: '/Users/you/Music', kind: 'music', count: 1284, more: false, watched: false, partly: false },
+			{ path: '/Users/you/Movies', kind: 'video', count: 12, more: false, watched: false, partly: false },
+			{ path: '/Users/you/Pictures', kind: 'picture', count: 0, more: false, watched: false, partly: false }
+		],
+		importKeys: async () => ({ done: false, keys: true, keysPath: '~/.mtpz-data', keysError: null }),
+		finish: async () => ({ done: true, keys: true, keysPath: '~/.mtpz-data', keysError: null })
+	},
 	social: mockSocial(),
 	media: mockMedia(),
 	devices: mockDevices(),
@@ -520,8 +643,10 @@ const tauriPlayer: PlayerApi = {
 	toggle: () => call('player_toggle'),
 	next: () => call('player_next'),
 	prev: () => call('player_prev'),
-	seek: (ms) => call('player_seek', { ms }),
-	volume: (v) => call('player_volume', { v })
+	// The backend takes whole milliseconds; a fraction fails the call.
+	seek: (ms) => call('player_seek', { ms: Math.max(0, Math.round(ms)) }),
+	volume: (v) => call('player_volume', { v }),
+	spectrum: (bands) => call('player_spectrum', { bands })
 };
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -558,6 +683,12 @@ const tauriSocial: SocialApi = {
 };
 
 const tauri: Api = {
+	setup: {
+		status: () => call('setup_status'),
+		suggestions: () => call('setup_suggestions'),
+		importKeys: (path) => call('import_keys', { path }),
+		finish: () => call('finish_setup')
+	},
 	social: tauriSocial,
 	media: {
 		folders: () => call('folders'),
@@ -578,7 +709,10 @@ const tauri: Api = {
 		rename: (name) => call('device_rename', { name }),
 		refresh: () => call('device_refresh'),
 		release: () => call('device_release'),
-		connect: () => call('device_connect')
+		connect: () => call('device_connect'),
+		sync: (ids) => call('sync_tracks', { ids }),
+		syncStatus: () => call('sync_status'),
+		remove: (ids) => call('device_remove', { ids })
 	},
 	player: tauriPlayer,
 	device: () => call<DeviceStatus>('device_status'),
@@ -603,6 +737,12 @@ async function devPost<T>(path: string): Promise<T> {
 const devArt = (k: string) => `/api/art/${k}`;
 
 const devApi: Api = {
+	setup: {
+		status: async () => (await fetch('/api/setup')).json(),
+		suggestions: async () => (await fetch('/api/setup/suggestions')).json(),
+		importKeys: (path) => devPost(`setup/keys?path=${encodeURIComponent(path)}`),
+		finish: () => devPost('setup/finish')
+	},
 	media: {
 		folders: async () => (await fetch('/api/folders')).json(),
 		addFolder: (path, kind) => devPost(`folders/add?path=${encodeURIComponent(path)}&kind=${kind}`),
@@ -619,7 +759,10 @@ const devApi: Api = {
 		rename: (name) => devPost(`device/rename?name=${encodeURIComponent(name)}`),
 		refresh: () => devPost('device/refresh'),
 		release: () => devPost('device/release'),
-		connect: () => devPost('device/connect')
+		connect: () => devPost('device/connect'),
+		sync: (ids) => devPost(`sync/start?ids=${ids.join(',')}`),
+		syncStatus: async () => (await fetch('/api/sync')).json(),
+		remove: (ids) => devPost(`device/remove?ids=${ids.join(',')}`)
 	},
 	social: {
 		status: () => devPost('social/status'),
@@ -637,7 +780,8 @@ const devApi: Api = {
 		next: () => post('next'),
 		prev: () => post('prev'),
 		seek: (ms) => post(`seek?ms=${Math.round(ms)}`),
-		volume: (v) => post(`volume?v=${v.toFixed(3)}`)
+		volume: (v) => post(`volume?v=${v.toFixed(3)}`),
+		spectrum: async (bands) => (await fetch(`/api/player/spectrum?bands=${bands}`)).json()
 	},
 	async device() {
 		return (await fetch('/api/device')).json();

@@ -12,6 +12,7 @@
 //!   what has been decoded ahead.
 
 mod decode;
+pub mod spectrum;
 
 use decode::Source;
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
@@ -97,6 +98,8 @@ struct Shared {
     status: Mutex<Status>,
     queue_len: AtomicU64,
     events: Mutex<Vec<Event>>,
+    /// What was last played, for the visualizer.
+    tap: Mutex<spectrum::Tap>,
 }
 
 pub struct Player {
@@ -118,6 +121,7 @@ impl Player {
             status: Mutex::new(Status::Stopped),
             queue_len: AtomicU64::new(0),
             events: Mutex::new(Vec::new()),
+            tap: Mutex::new(spectrum::Tap::new()),
         });
 
         // The cpal stream must stay on the thread that created it, so a
@@ -197,6 +201,16 @@ impl Player {
             volume: f32::from_bits(self.shared.volume.load(Ordering::Relaxed)),
             queue_len: self.shared.queue_len.load(Ordering::Relaxed) as usize,
         }
+    }
+
+    /// Levels (0 to 1) of `n` frequency bands of what is playing now; all
+    /// zero when not playing.
+    pub fn spectrum(&self, n: usize) -> Vec<f32> {
+        if *self.shared.status.lock().unwrap() != Status::Playing {
+            return vec![0.0; n];
+        }
+        let window = self.shared.tap.lock().unwrap().latest();
+        spectrum::bands(&window, self.rate, n)
     }
 
     /// Events since the last call.
@@ -293,6 +307,10 @@ mod output {
                     }
                     out[got..].fill(T::EQUILIBRIUM);
                     shared.frames_played.fetch_add((got / channels) as u64, Ordering::Relaxed);
+                    // Never wait in the audio callback: skip a block if the tap is busy.
+                    if let Ok(mut tap) = shared.tap.try_lock() {
+                        tap.push(&scratch[..got], channels);
+                    }
                 },
                 |e| eprintln!("audio output error: {e}"),
                 None,

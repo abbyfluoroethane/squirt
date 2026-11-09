@@ -257,8 +257,14 @@ impl Zune {
     /// to them. Returns the number of tracks deleted.
     pub fn delete_album(&mut self, storage: u32, album: u32) -> Result<usize, DeviceError> {
         let tracks = self.references(album)?;
+        self.delete_tracks(storage, &tracks, &[album])
+    }
+
+    /// Deletes tracks, then any album and artist folders they leave empty,
+    /// and any of `albums` left with no tracks. Returns the number deleted.
+    pub fn delete_tracks(&mut self, storage: u32, tracks: &[u32], albums: &[u32]) -> Result<usize, DeviceError> {
         let mut folders = Vec::new();
-        for &t in &tracks {
+        for &t in tracks {
             let parent = self.prop_u32(t, prop::PARENT_OBJECT)?;
             self.delete_object(t)?;
             if !folders.contains(&parent) {
@@ -282,9 +288,15 @@ impl Zune {
             }
             folders = next;
         }
-        // If the device kept the album object, remove it too.
-        if self.prop_u32(album, prop::OBJECT_FORMAT as u16).is_ok() {
-            let _ = self.delete_object(album);
+        // Albums with nothing left: remove them, if the device kept them.
+        for &a in albums {
+            if self.prop_u32(a, prop::OBJECT_FORMAT as u16).is_err() {
+                continue; // Already gone.
+            }
+            let left = self.references(a).unwrap_or_default().into_iter().filter(|r| !tracks.contains(r)).count();
+            if left == 0 {
+                let _ = self.delete_object(a);
+            }
         }
         Ok(tracks.len())
     }

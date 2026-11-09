@@ -15,7 +15,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod push;
+mod setup;
+mod sync;
 mod social;
+mod watch;
+pub use setup::{SetupStatus, SuggestedFolder};
+pub use sync::SyncStatus;
 pub use social::{LastFmProfile, ScrobbleDto, SocialStatus};
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -40,6 +46,8 @@ pub struct TrackDto {
     pub on_device: bool,
     /// Release date (podcast episodes show this).
     pub date: Option<String>,
+    /// The file on this computer (none for songs only on the device).
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -78,6 +86,8 @@ pub struct DeviceStatus {
     pub problem: Option<String>,
     /// "slate" or "platinum", from the device's own icon; None if unknown.
     pub finish: Option<String>,
+    /// Which body to draw: "zunehd", "zune30", "zuneflash" or "zunehdd".
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -154,6 +164,7 @@ pub struct DeviceInfoDto {
     pub artists: usize,
     /// "slate" or "platinum"; None if unknown.
     pub finish: Option<String>,
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -220,9 +231,15 @@ struct Playback {
 
 pub struct Service {
     scan: Mutex<ScanStatus>,
+    /// A rescan was asked for while one was running; run again after it.
+    scan_again: std::sync::atomic::AtomicBool,
     lib: Mutex<Library>,
     player: Mutex<Option<Playback>>,
     device: Mutex<DeviceSlot>,
+    /// (album artist, album, title) of every song on the device. Kept apart
+    /// from `device` so the collection never waits on a slow device read.
+    on_device: Mutex<Arc<HashSet<(String, String, String)>>>,
+    sync: Mutex<sync::SyncState>,
     social: Mutex<social::SocialState>,
 }
 
@@ -232,9 +249,12 @@ impl Service {
         let social_path = db.with_file_name("social.json");
         Ok(Self {
             scan: Mutex::new(ScanStatus::default()),
+            scan_again: Default::default(),
             lib: Mutex::new(Library::open(&db, &art).map_err(err)?),
             player: Mutex::new(None),
             device: Mutex::new(DeviceSlot::default()),
+            on_device: Mutex::new(Arc::default()),
+            sync: Mutex::new(Default::default()),
             social: Mutex::new(social::SocialState::load(social_path)),
         })
     }
@@ -243,13 +263,7 @@ impl Service {
 
     /// Every album in the library, with tracks, marking the ones on the device.
     pub fn collection(&self) -> Result<Vec<AlbumDto>> {
-        let on_device: HashSet<(String, String, String)> = {
-            let dev = self.device.lock().unwrap();
-            dev.library
-                .as_ref()
-                .map(|l| l.tracks.iter().map(|t| (norm(&t.album_artist), norm(&t.album), norm(&t.title))).collect())
-                .unwrap_or_default()
-        };
+        let on_device = self.on_device.lock().unwrap().clone();
         let lib = self.lib.lock().unwrap();
         let mut out = Vec::new();
         for a in lib.albums(None).map_err(err)? {
@@ -259,6 +273,7 @@ impl Service {
                 .into_iter()
                 .map(|t| TrackDto {
                     on_device: on_device.contains(&(norm(&t.album_artist), norm(&t.album), norm(&t.title))),
+                    path: Some(t.path.to_string_lossy().into_owned()),
                     id: t.id,
                     disc: t.disc_no.unwrap_or(1),
                     n: t.track_no.unwrap_or(0),
@@ -324,6 +339,8 @@ impl Service {
         {
             let mut s = self.scan.lock().unwrap();
             if s.running {
+                // Folders may have changed since that scan read them.
+                self.scan_again.store(true, std::sync::atomic::Ordering::SeqCst);
                 return;
             }
             *s = ScanStatus { running: true, last: s.last.clone(), ..Default::default() };
@@ -332,17 +349,22 @@ impl Service {
         std::thread::Builder::new()
             .name("squirt-scan".into())
             .spawn(move || {
-                let result = Library::default_dirs()
-                    .ok_or_else(|| "no data directory".to_string())
-                    .and_then(|(db, art)| Library::open(&db, &art).map_err(err))
-                    .and_then(|mut lib| {
-                        lib.scan(&mut |p| {
-                            let mut s = svc.scan.lock().unwrap();
-                            s.done = p.done;
-                            s.total = p.total;
-                        })
-                        .map_err(err)
-                    });
+                let result = loop {
+                    let r = Library::default_dirs()
+                        .ok_or_else(|| "no data directory".to_string())
+                        .and_then(|(db, art)| Library::open(&db, &art).map_err(err))
+                        .and_then(|mut lib| {
+                            lib.scan(&mut |p| {
+                                let mut s = svc.scan.lock().unwrap();
+                                s.done = p.done;
+                                s.total = p.total;
+                            })
+                            .map_err(err)
+                        });
+                    if !svc.scan_again.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        break r;
+                    }
+                };
                 let mut s = svc.scan.lock().unwrap();
                 s.running = false;
                 match result {
@@ -416,6 +438,7 @@ impl Service {
                 .into_iter()
                 .enumerate()
                 .map(|(i, t)| TrackDto {
+                    path: Some(t.path.to_string_lossy().into_owned()),
                     id: t.id,
                     disc: 1,
                     n: (i + 1) as u32,
@@ -483,7 +506,7 @@ impl Service {
                 // Unplugged: forget a manual disconnect, so replugging connects.
                 dev.released = false;
                 dev.status = DeviceStatus::default();
-                dev.library = None;
+                self.set_device_library(&mut dev, None);
                 dev.art.clear();
                 return dev.status.clone();
             }
@@ -503,7 +526,7 @@ impl Service {
                     // collection can mark what is already on it.
                     let tracks = z.music_tracks().unwrap_or_default();
                     let albums = z.album_objects(dev.storage).unwrap_or_default();
-                    dev.library = Some(DeviceLibrary { tracks, albums });
+                    self.set_device_library(&mut dev, Some(DeviceLibrary { tracks, albums }));
                     dev.finish = device_finish(&mut z);
                     dev.zune = Some(z);
                 }
@@ -520,6 +543,7 @@ impl Service {
             .and_then(|d| squirt_mtp::dataset::Reader::new(&d).string().ok())
             .unwrap_or_default();
         let model = z.info.model.clone();
+        let z_model = z.found.model;
         let firmware = z.info.device_version.split('-').next().unwrap_or("").to_string();
         match info {
             Ok(si) => {
@@ -535,17 +559,28 @@ impl Service {
                     usage: Usage { music, other: used.saturating_sub(music), ..Default::default() },
                     problem: None,
                     finish: dev.finish.clone(),
+                    kind: Some(device_kind(z_model, si.max_capacity).into()),
                 };
             }
             Err(_) => {
                 // Unplugged or wedged: drop the connection and report disconnected.
                 dev.zune = None;
-                dev.library = None;
+                self.set_device_library(&mut dev, None);
                 dev.art.clear();
                 dev.status = DeviceStatus::default();
             }
         }
         dev.status.clone()
+    }
+
+    /// Replaces the cached device library and the on-device song keys.
+    fn set_device_library(&self, dev: &mut DeviceSlot, lib: Option<DeviceLibrary>) {
+        let keys = lib
+            .as_ref()
+            .map(|l| l.tracks.iter().map(|t| (norm(&t.album_artist), norm(&t.album), norm(&t.title))).collect())
+            .unwrap_or_default();
+        *self.on_device.lock().unwrap() = Arc::new(keys);
+        dev.library = lib;
     }
 
     /// Details for the device info page.
@@ -582,6 +617,7 @@ impl Service {
             albums,
             artists,
             finish: status.finish,
+            kind: status.kind,
         }
     }
 
@@ -608,11 +644,58 @@ impl Service {
             let z = dev.zune.as_mut().ok_or("no device connected")?;
             let tracks = z.music_tracks().map_err(err)?;
             let albums = z.album_objects(storage).map_err(err)?;
-            dev.library = Some(DeviceLibrary { tracks, albums });
+            self.set_device_library(&mut dev, Some(DeviceLibrary { tracks, albums }));
             dev.art.clear();
             dev.checked = None;
         }
         Ok(self.device_info())
+    }
+
+    /// Removes songs from the device. `ids` can mix device song ids
+    /// (negative, from the device view) and library ids (positive, matched
+    /// to the device by album artist, album and title). Empty album and
+    /// artist folders go too. Returns how many songs were removed.
+    pub fn device_remove(&self, ids: Vec<i64>) -> Result<usize> {
+        if self.sync_status().active {
+            return Err("wait for the current sync to finish".into());
+        }
+        // Library ids -> their (album artist, album, title) keys.
+        let keys: HashSet<(String, String, String)> = {
+            let lib = self.lib.lock().unwrap();
+            ids.iter()
+                .filter(|&&id| id > 0)
+                .filter_map(|&id| lib.track(id).ok().flatten())
+                .map(|t| (norm(&t.album_artist), norm(&t.album), norm(&t.title)))
+                .collect()
+        };
+        let mut dev = self.device.lock().unwrap();
+        let storage = dev.storage;
+        let library = dev.library.as_ref().ok_or("the zune's library isn't loaded yet")?;
+        let mut handles: Vec<u32> = ids.iter().filter(|&&id| id < 0).map(|&id| (-id) as u32).collect();
+        for t in &library.tracks {
+            if keys.contains(&(norm(&t.album_artist), norm(&t.album), norm(&t.title))) && !handles.contains(&t.handle) {
+                handles.push(t.handle);
+            }
+        }
+        let albums: Vec<u32> = {
+            let mut a: Vec<u32> = library.tracks.iter().filter(|t| handles.contains(&t.handle)).filter_map(|t| t.album_ref).collect();
+            a.sort_unstable();
+            a.dedup();
+            a
+        };
+        if handles.is_empty() {
+            return Ok(0);
+        }
+        let z = dev.zune.as_mut().ok_or("no zune connected")?;
+        let removed = z.delete_tracks(storage, &handles, &albums).map_err(err);
+        // Re-read what's on the device either way (a partial delete is possible).
+        let reread = z.music_tracks().and_then(|t| Ok((t, z.album_objects(storage)?)));
+        if let Ok((tracks, albums)) = reread {
+            self.set_device_library(&mut dev, Some(DeviceLibrary { tracks, albums }));
+        }
+        dev.art.clear();
+        dev.checked = None;
+        removed
     }
 
     /// Lets go of the device (so other tools can use it) until it is
@@ -621,7 +704,7 @@ impl Service {
         {
             let mut dev = self.device.lock().unwrap();
             dev.zune = None; // Dropping the connection releases the USB interface.
-            dev.library = None;
+            self.set_device_library(&mut dev, None);
             dev.art.clear();
             dev.released = true;
             dev.checked = None;
@@ -646,7 +729,7 @@ impl Service {
             let Some(z) = dev.zune.as_mut() else { return Ok(Vec::new()) };
             let tracks = z.music_tracks().map_err(err)?;
             let albums = z.album_objects(storage).map_err(err)?;
-            dev.library = Some(DeviceLibrary { tracks, albums });
+            self.set_device_library(&mut dev, Some(DeviceLibrary { tracks, albums }));
         }
         let lib = dev.library.as_ref().unwrap();
         let by_handle: HashMap<u32, &DeviceAlbum> = lib.albums.iter().map(|a| (a.handle, a)).collect();
@@ -680,6 +763,7 @@ impl Service {
                         .map(|t| TrackDto {
                             // Device tracks are not playable from the computer; negative ids keep them apart.
                             id: -(t.handle as i64),
+                            path: None,
                             disc: if t.track_no >= 100 { (t.track_no / 100) as u32 } else { 1 },
                             n: if t.track_no >= 100 { (t.track_no % 100) as u32 } else { t.track_no as u32 },
                             title: t.title.clone(),
@@ -718,6 +802,15 @@ impl Service {
     }
 
     /// Current player state; also records plays for finished tracks.
+    /// Visualizer levels: `bands` values from 0 to 1, low to high frequency.
+    pub fn player_spectrum(&self, bands: usize) -> Vec<f32> {
+        let bands = bands.clamp(1, 256);
+        match self.player.lock().unwrap().as_ref() {
+            Some(pb) => pb.player.spectrum(bands),
+            None => vec![0.0; bands],
+        }
+    }
+
     pub fn player_state(&self) -> PlayerStateDto {
         let slot = self.player.lock().unwrap();
         let Some(pb) = slot.as_ref() else {
@@ -837,6 +930,20 @@ fn device_finish(z: &mut Zune) -> Option<String> {
         return None;
     }
     Some(if sum / count as f64 > 110.0 { "platinum" } else { "slate" }.into())
+}
+
+/// Which illustration fits: the Zune HD has its own USB id; the classic
+/// models share one, so tell them apart by capacity (30 GB hard drive;
+/// 4, 8 or 16 GB flash; 80 or 120 GB hard drive).
+fn device_kind(model: squirt_mtp::devices::ZuneModel, capacity: u64) -> &'static str {
+    use squirt_mtp::devices::ZuneModel;
+    const GB: u64 = 1_000_000_000;
+    match model {
+        ZuneModel::Hd => "zunehd",
+        ZuneModel::Classic if capacity > 50 * GB => "zunehdd",
+        ZuneModel::Classic if capacity > 20 * GB => "zune30",
+        ZuneModel::Classic => "zuneflash",
+    }
 }
 
 /// Expands a leading `~` to the home directory.

@@ -262,3 +262,18 @@ mod tests {
         assert!(Source::open(Path::new("/nonexistent.mp3"), 48000, 2, 0).is_err());
     }
 }
+
+#[cfg(test)]
+mod real_file {
+    use super::*;
+    /// SQUIRT_SEEK_FILE=/path/to/song cargo test -p squirt-player real_seek -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn real_seek() {
+        let p = std::env::var("SQUIRT_SEEK_FILE").unwrap();
+        let t = std::time::Instant::now();
+        let mut s = Source::open(Path::new(&p), 48000, 2, 60_000).unwrap();
+        let first = s.next_chunk().unwrap().map(|c| c.len());
+        println!("opened at 60s in {:?}, duration {} ms, first chunk {:?}", t.elapsed(), s.duration_ms(), first);
+    }
+}

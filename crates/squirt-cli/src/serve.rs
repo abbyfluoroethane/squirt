@@ -118,6 +118,19 @@ fn handle(svc: &Arc<Service>, req: Request) {
                 None => Response::from_string("").with_status_code(404),
             }
         }
+        "/api/device/remove" => {
+            let ids = q("ids").unwrap_or_default().split(',').filter_map(|x| x.parse().ok()).collect();
+            svc.device_remove(ids).map(|n| json_response(&n)).unwrap_or_else(error)
+        }
+        "/api/sync" => json_response(&svc.sync_status()),
+        "/api/sync/start" => {
+            let ids = q("ids").unwrap_or_default().split(',').filter_map(|x| x.parse().ok()).collect();
+            svc.sync_tracks(ids).map(|v| json_response(&v)).unwrap_or_else(error)
+        }
+        "/api/setup" => json_response(&svc.setup_status()),
+        "/api/setup/suggestions" => json_response(&svc.setup_suggestions()),
+        "/api/setup/keys" => svc.import_keys(&url_decode(&q("path").unwrap_or_default())).map(|v| json_response(&v)).unwrap_or_else(error),
+        "/api/setup/finish" => svc.finish_setup().map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/device/info" => json_response(&svc.device_info()),
         "/api/device/rename" => {
             let name = q("name").map(|n| url_decode(&n)).unwrap_or_default();
@@ -128,6 +141,7 @@ fn handle(svc: &Arc<Service>, req: Request) {
         "/api/device/connect" => json_response(&svc.device_connect()),
         "/api/device/collection" => svc.device_collection().map(|v| json_response(&v)).unwrap_or_else(error),
         "/api/player/state" => json_response(&svc.player_state()),
+        "/api/player/spectrum" => json_response(&svc.player_spectrum(q("bands").and_then(|v| v.parse().ok()).unwrap_or(48))),
         "/api/player/play" => {
             let ids = q("ids").unwrap_or_default().split(',').filter_map(|x| x.parse().ok()).collect();
             let start = q("start").and_then(|v| v.parse().ok()).unwrap_or(0);

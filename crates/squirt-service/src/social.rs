@@ -274,6 +274,8 @@ impl Service {
     pub fn start_background(self: &Arc<Self>) {
         // Pick up anything added to the watched folders while Squirt was closed.
         self.rescan();
+        // ...and anything added while it is open.
+        self.start_watcher();
         let svc = self.clone();
         std::thread::Builder::new()
             .name("squirt-social".into())
