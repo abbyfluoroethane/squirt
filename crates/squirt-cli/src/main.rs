@@ -82,6 +82,11 @@ enum Cmd {
         #[arg(long)]
         keys: Option<PathBuf>,
     },
+    /// Manage the local music library (watched folders).
+    Library {
+        #[command(subcommand)]
+        cmd: LibCmd,
+    },
     /// Delete an object by handle.
     Rm {
         handle: String,
@@ -92,6 +97,63 @@ enum Cmd {
     Keys {
         path: Option<PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum LibCmd {
+    /// Watch a folder.
+    Add { path: PathBuf },
+    /// List watched folders.
+    Folders,
+    /// Scan watched folders for new, changed and removed files.
+    Scan,
+    /// List albums.
+    Albums,
+}
+
+fn open_library() -> Result<squirt_library::Library> {
+    let (db, art) = squirt_library::Library::default_dirs().context("no data directory")?;
+    Ok(squirt_library::Library::open(&db, &art)?)
+}
+
+fn library(cmd: LibCmd) -> Result<()> {
+    let mut lib = open_library()?;
+    match cmd {
+        LibCmd::Add { path } => {
+            let f = lib.add_folder(&path)?;
+            println!("watching {}", f.path.display());
+        }
+        LibCmd::Folders => {
+            for f in lib.folders()? {
+                println!("{}  {}", f.id, f.path.display());
+            }
+        }
+        LibCmd::Scan => {
+            let t0 = std::time::Instant::now();
+            let r = lib.scan(&mut |_| {})?;
+            println!(
+                "{} files: {} added, {} updated, {} removed, {} errors ({:.1}s)",
+                r.seen, r.added, r.updated, r.removed, r.errors.len(), t0.elapsed().as_secs_f64()
+            );
+            for (p, e) in r.errors.iter().take(10) {
+                println!("  error: {}: {e}", p.display());
+            }
+        }
+        LibCmd::Albums => {
+            for a in lib.albums(None)? {
+                println!(
+                    "{} - {} ({}) {} tracks, {} min{}",
+                    a.artist,
+                    a.title,
+                    a.year.map(|y| y.to_string()).unwrap_or_default(),
+                    a.track_count,
+                    a.duration_ms / 60_000,
+                    if a.art.is_some() { ", art" } else { "" }
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -283,6 +345,7 @@ fn main() -> Result<()> {
             }
             println!("{ok} ok, {missing} missing, {bad} wrong size");
         }
+        Cmd::Library { cmd } => library(cmd)?,
         Cmd::Rm { handle, keys } => {
             let keys = load_keys(keys)?;
             let mut z = Zune::connect(Some(&keys))?;

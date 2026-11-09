@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["crates/squirt-mtp", "crates/squirt-cli"]
+members = ["crates/squirt-mtp", "crates/squirt-cli", "crates/squirt-library"]

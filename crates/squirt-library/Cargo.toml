@@ -1,0 +1,17 @@
+[package]
+license = "MIT"
+name = "squirt-library"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4.3"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+lofty = "0.25"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+sha1 = "0.10"
+thiserror = "2.0.21"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"

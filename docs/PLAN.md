@@ -50,7 +50,22 @@
    - [ ] Playlists. Single-track delete. Transcode FLAC/ALAC/OGG.
 3. **Video:** ffmpeg presets. Zune HD: H.264 Baseline at 480x272 (720p for
    dock/TV out; check this). Classic: 320x240.
-4. **Desktop app:** Tauri + Svelte. Drag-and-drop, device view, transfer queue.
+4. **Desktop app: player, library manager and sync** (Tauri + Svelte).
+   Decided 2026-11-08: Squirt is also a music player and library manager.
+   - Library (`crates/squirt-library`): a SQLite index of watched folders,
+     with incremental rescans and an art thumbnail cache. Files are never
+     moved unless the user runs the opt-in "organize files" action. Tag edits
+     are written into the files.
+     - [x] Index, scanner, art cache, album/track queries (`squirt library`).
+     - [ ] Folder watching, tag editing, playlists, organize action.
+   - Player (`crates/squirt-player`): symphonia + cpal, so formats behave the
+     same on every OS (no webview audio). Queue, gapless, media keys
+     (souvlaki), play counts.
+   - Sync: manual drag-to-device always works. An optional sync list keeps
+     chosen artists, albums and playlists matched on the Zune. FLAC/ALAC are
+     converted when synced.
+   - UI: Zune-desktop look (Selawik, lowercase pivots). In a plain browser it
+     uses a local dev API, so the preview shows the real library.
 5. **Classic/flash Zunes:** quirks and format presets.
 6. **Long shot: apps.** XNA titles. Look into how the Zune software deployed
    them, and OpenZDK homebrew.
