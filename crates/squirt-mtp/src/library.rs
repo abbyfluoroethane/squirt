@@ -34,6 +34,9 @@ pub struct Track {
     pub album_artist: String,
     pub genre: Option<String>,
     pub track_number: Option<u16>,
+    pub disc_number: Option<u16>,
+    /// Number of discs in the album, when known.
+    pub disc_total: Option<u16>,
     pub year: Option<u32>,
     pub duration_ms: u32,
     /// MTP object format, for example [`format::MP3`].
@@ -65,6 +68,25 @@ pub fn safe_name(s: &str) -> String {
         "_".into()
     } else {
         trimmed
+    }
+}
+
+/// The track number sent to the device. The Zune HD's disc number property
+/// only accepts 0 or 1, so on multi-disc albums the disc goes into the track
+/// number instead: disc 2, track 3 becomes 203. Tracks then sort correctly.
+pub fn device_track_number(t: &Track) -> Option<u16> {
+    let multi_disc = t.disc_total.is_some_and(|n| n > 1) || t.disc_number.is_some_and(|d| d > 1);
+    match (t.track_number, t.disc_number) {
+        (Some(n), Some(d)) if multi_disc && n < 100 => Some(d * 100 + n),
+        (n, _) => n,
+    }
+}
+
+/// `NN Title.ext` (the device may rename the file to its own pattern).
+pub fn track_file_name(t: &Track) -> String {
+    match device_track_number(t) {
+        Some(n) => format!("{n:02} {}.{}", safe_name(&t.title), t.extension),
+        None => format!("{}.{}", safe_name(&t.title), t.extension),
     }
 }
 
@@ -176,11 +198,9 @@ impl Zune {
         let music = self.ensure_folder(storage, ROOT, "Music")?;
         let artist_dir = self.ensure_folder(storage, music, &safe_name(&t.album_artist))?;
         let album_dir = self.ensure_folder(storage, artist_dir, &safe_name(&t.album))?;
-        let filename = match t.track_number {
-            Some(n) => format!("{n:02} {}.{}", safe_name(&t.title), t.extension),
-            None => format!("{}.{}", safe_name(&t.title), t.extension),
-        };
-        if let Some(handle) = self.find_child(storage, album_dir, &filename)? {
+        let filename = track_file_name(t);
+        let track_no = device_track_number(t);
+        if let Some(handle) = self.find_track(album_dir, t.format, &t.title, track_no.unwrap_or(0))? {
             return Ok(PushOutcome::AlreadyPresent { handle });
         }
 
@@ -204,13 +224,14 @@ impl Zune {
             (zprop::ARTIST_REF, PropValue::U32(track_artist_obj)),
             (zprop::ALBUM_REF, PropValue::U32(album)),
         ];
-        if let Some(n) = t.track_number {
+        if let Some(n) = track_no {
             props.push((prop::TRACK, PropValue::U16(n)));
         }
         if let Some(g) = &t.genre {
             props.push(str_prop(prop::GENRE, g));
         }
         let handle = self.send_object_progress(storage, album_dir, t.format, &props, bytes, progress)?;
+        self.note_track(album_dir, t.format, &t.title, track_no.unwrap_or(0), handle);
         self.add_reference(album, handle)?;
 
         let mut art_set = false;
@@ -259,5 +280,36 @@ impl Zune {
             let _ = self.delete_object(album);
         }
         Ok(tracks.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn t(track: Option<u16>, disc: Option<u16>, total: Option<u16>) -> Track {
+        Track {
+            title: "A/B: C?".into(),
+            artist: String::new(),
+            album: String::new(),
+            album_artist: String::new(),
+            genre: None,
+            track_number: track,
+            disc_number: disc,
+            disc_total: total,
+            year: None,
+            duration_ms: 0,
+            format: format::M4A,
+            extension: "m4a".into(),
+        }
+    }
+
+    #[test]
+    fn file_names() {
+        assert_eq!(track_file_name(&t(Some(5), Some(1), Some(1))), "05 A_B_ C_.m4a");
+        assert_eq!(track_file_name(&t(Some(5), Some(1), Some(2))), "105 A_B_ C_.m4a");
+        assert_eq!(track_file_name(&t(Some(5), Some(2), None)), "205 A_B_ C_.m4a");
+        assert_eq!(track_file_name(&t(None, Some(2), Some(2))), "A_B_ C_.m4a");
+        assert_eq!(device_track_number(&t(Some(7), None, None)), Some(7));
     }
 }

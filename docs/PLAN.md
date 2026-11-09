@@ -40,7 +40,14 @@
      folder contents makes this fast. About 6 MB/s on a Zune HD; the device is
      the bottleneck.
    - [x] Delete albums with their tracks and emptied folders (`squirt albums --delete-matching`).
-   - [ ] Playlists. More formats (AAC/M4A). Single-track delete.
+   - [x] AAC `.m4a` (format 0xB215); ALAC is refused with a message. Art falls
+     back to cover.jpg/folder.jpg. Multi-disc albums encode the disc in the
+     track number (disc 2 track 3 = 203), because the Zune HD's disc
+     property only accepts 0 or 1.
+   - [x] Skip detection by (title, track number), because the device renames
+     .m4a files. It uses a group-3 GetObjectPropList; the Zune refuses
+     single-property depth-1 queries except for the file name.
+   - [ ] Playlists. Single-track delete. Transcode FLAC/ALAC/OGG.
 3. **Video:** ffmpeg presets. Zune HD: H.264 Baseline at 480x272 (720p for
    dock/TV out; check this). Classic: 320x240.
 4. **Desktop app:** Tauri + Svelte. Drag-and-drop, device view, transfer queue.

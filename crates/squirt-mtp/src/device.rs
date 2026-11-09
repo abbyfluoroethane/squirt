@@ -17,6 +17,8 @@ pub mod format {
     pub const ASSOCIATION: u16 = 0x3001; // folder
     pub const MP3: u16 = 0x3009;
     pub const WMA: u16 = 0xB901;
+    /// AAC in an MPEG-4 container (.m4a). Same code as WPD's M4A format.
+    pub const M4A: u16 = 0xB215;
     pub const ABSTRACT_AUDIO_ALBUM: u16 = 0xBA03;
 }
 
@@ -34,6 +36,8 @@ pub mod prop {
     pub const ORIGINAL_RELEASE_DATE: u16 = 0xDC99;
     pub const ALBUM_NAME: u16 = 0xDC9A;
     pub const ALBUM_ARTIST: u16 = 0xDC9B;
+    /// The Zune HD only accepts 0 or 1 here, so multi-disc albums cannot use it.
+    pub const DISC_NUMBER: u16 = 0xDC9D;
 }
 
 #[derive(Debug, Error)]
@@ -166,6 +170,8 @@ pub struct Zune {
     t: Transport,
     /// parent handle -> (file name -> handle), filled lazily per folder.
     names: HashMap<u32, HashMap<String, u32>>,
+    /// (folder, format) -> ((title, track number) -> handle), filled lazily.
+    tracks: HashMap<(u32, u16), HashMap<(String, u16), u32>>,
 }
 
 fn file_name_of(props: &[(u16, PropValue)]) -> Option<&str> {
@@ -184,7 +190,7 @@ impl Zune {
         let data = t.transact(op::GET_DEVICE_INFO, &[], None)?.data;
         let info = DeviceInfo::parse(&data.ok_or(DeviceError::NoData("DeviceInfo"))?)?;
         t.open_session(1)?;
-        let mut z = Self { found, info, t, names: HashMap::new() };
+        let mut z = Self { found, info, t, names: HashMap::new(), tracks: HashMap::new() };
         // List storage before the handshake, as the reference flow does.
         z.storage_ids()?;
         if let Some(keys) = keys {
@@ -209,6 +215,11 @@ impl Zune {
         let mut r = Reader::new(&d);
         let n = r.u32()?;
         Ok((0..n).map(|_| r.u32()).collect::<Result<_, _>>()?)
+    }
+
+    /// Runs a read-only operation and returns its raw data phase (for debugging).
+    pub fn raw(&mut self, code: u16, params: &[u32]) -> Result<Vec<u8>, DeviceError> {
+        Ok(self.t.transact(code, params, None)?.data.unwrap_or_default())
     }
 
     pub fn storage_ids(&mut self) -> Result<Vec<u32>, DeviceError> {
@@ -369,6 +380,48 @@ impl Zune {
         }
     }
 
+    /// Finds a track of `format` in folder `parent` by title and track number.
+    /// The device renames some files itself, so file names cannot be used.
+    ///
+    /// The Zune HD refuses GetObjectPropList for a single property code at
+    /// depth 1 (0xA801), except for the file name. It does answer by property
+    /// group: title (0xDC44) and track number (0xDC8B) are both in group 3.
+    pub fn find_track(&mut self, parent: u32, format: u16, title: &str, track: u16) -> Result<Option<u32>, DeviceError> {
+        let key = (parent, format);
+        if !self.tracks.contains_key(&key) {
+            let d = self.data(op::GET_OBJECT_PROP_LIST, &[parent, format as u32, 0, 3, 1], "ObjectPropList")?;
+            let mut r = Reader::new(&d);
+            let mut names: HashMap<u32, String> = HashMap::new();
+            let mut numbers: HashMap<u32, u16> = HashMap::new();
+            for _ in 0..r.u32()? {
+                let h = r.u32()?;
+                let code = r.u16()?;
+                let dt = r.u16()?;
+                match (code, read_value(&mut r, dt)?) {
+                    (prop::NAME, AnyValue::Str(n)) if h != parent => {
+                        names.insert(h, n);
+                    }
+                    (prop::TRACK, AnyValue::Int(t)) if h != parent => {
+                        numbers.insert(h, t as u16);
+                    }
+                    _ => {}
+                }
+            }
+            let map = names
+                .into_iter()
+                .map(|(h, n)| ((n, numbers.get(&h).copied().unwrap_or(0)), h))
+                .collect();
+            self.tracks.insert(key, map);
+        }
+        Ok(self.tracks[&key].get(&(title.to_string(), track)).copied())
+    }
+
+    pub(crate) fn note_track(&mut self, parent: u32, format: u16, title: &str, track: u16, handle: u32) {
+        if let Some(m) = self.tracks.get_mut(&(parent, format)) {
+            m.insert((title.to_string(), track), handle);
+        }
+    }
+
     /// Finds a child of `parent` by file name.
     pub fn find_child(&mut self, storage: u32, parent: u32, name: &str) -> Result<Option<u32>, DeviceError> {
         self.load_names(storage, parent)?;
@@ -388,6 +441,7 @@ impl Zune {
         let h = reply.params.get(2).copied().ok_or(DeviceError::Unexpected("no handle for new folder"))?;
         self.remember(parent, name, h);
         self.names.insert(h, HashMap::new()); // A new folder is empty.
+
         Ok(h)
     }
 
@@ -395,6 +449,7 @@ impl Zune {
         self.t.transact(op::DELETE_OBJECT, &[handle, 0], None)?;
         // The device may also delete linked objects, so drop the whole cache.
         self.names.clear();
+        self.tracks.clear();
         Ok(())
     }
 }

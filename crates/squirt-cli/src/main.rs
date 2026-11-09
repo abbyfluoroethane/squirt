@@ -107,6 +107,8 @@ fn main() -> Result<()> {
                 mtpz_ops.iter().all(|&o| info.supports(o)));
             let ops: Vec<String> = info.operations.iter().map(|o| format!("{o:#06x}")).collect();
             println!("operations ({}): {}", ops.len(), ops.join(" "));
+            let fmts: Vec<String> = info.playback_formats.iter().map(|o| format!("{o:#06x}")).collect();
+            println!("playback formats ({}): {}", fmts.len(), fmts.join(" "));
             t.open_session(1).context("OpenSession failed")?;
             println!("OpenSession: OK");
         }
@@ -261,6 +263,15 @@ impl TrackMeta {
         let format = match ext.as_str() {
             "mp3" => format::MP3,
             "wma" => format::WMA,
+            "m4a" => {
+                use lofty::mp4::{Mp4Codec, Mp4File};
+                let mut f = std::fs::File::open(path)?;
+                let mp4 = Mp4File::read_from(&mut f, lofty::config::ParseOptions::new())?;
+                match mp4.properties().codec() {
+                    Some(Mp4Codec::AAC) => format::M4A,
+                    other => anyhow::bail!("the Zune plays AAC .m4a files only, this one is {other:?} (transcoding is not supported yet)"),
+                }
+            }
             other => anyhow::bail!("unsupported file type: .{other}"),
         };
         let art = tag.and_then(|t| {
@@ -270,7 +281,8 @@ impl TrackMeta {
                 .find(|p| p.pic_type() == PictureType::CoverFront)
                 .or_else(|| pics.first())
                 .map(|p| p.data().to_vec())
-        });
+        })
+        .or_else(|| folder_art(path));
         Ok(Self {
             track: Track {
                 title: get(&|t| t.title().map(|c| c.into_owned())).unwrap_or(stem),
@@ -280,6 +292,8 @@ impl TrackMeta {
                 artist,
                 genre: get(&|t| t.genre().map(|c| c.into_owned())),
                 track_number: tag.and_then(|t| t.track()).map(|n| n as u16),
+                disc_number: tag.and_then(|t| t.disk()).map(|n| n as u16),
+                disc_total: tag.and_then(|t| t.disk_total()).map(|n| n as u16),
                 year: tag.and_then(|t| t.date()).map(|d| d.year as u32),
                 duration_ms,
                 format,
@@ -300,7 +314,7 @@ fn scale_art(data: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wma"];
+const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wma", "m4a"];
 
 /// Expands files and folders into a sorted list of supported audio files.
 fn collect_audio(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
@@ -370,7 +384,7 @@ fn push(paths: Vec<PathBuf>, keys: Option<PathBuf>) -> Result<()> {
                 let art = match meta.art.as_deref().map(scale_art) {
                     Some(Ok(a)) => Some(a),
                     Some(Err(e)) => {
-                        bar.println(format!("warning: cover art for {:?} unusable: {e:#}", meta.track.album));
+                        eprintln!("{}", format!("warning: cover art for {:?} unusable: {e:#}", meta.track.album));
                         None
                     }
                     None => None,
@@ -390,7 +404,7 @@ fn push(paths: Vec<PathBuf>, keys: Option<PathBuf>) -> Result<()> {
             }
             Ok(PushOutcome::AlreadyPresent { .. }) => skipped += 1,
             Err(e) => {
-                bar.println(format!("failed: {}: {e:#}", file.display()));
+                eprintln!("{}", format!("failed: {}: {e:#}", file.display()));
                 failed.push(file.clone());
             }
         }
@@ -405,4 +419,17 @@ fn push(paths: Vec<PathBuf>, keys: Option<PathBuf>) -> Result<()> {
     );
     anyhow::ensure!(failed.is_empty(), "{} file(s) failed", failed.len());
     Ok(())
+}
+
+/// Cover art next to the file (cover.jpg, folder.jpg, and similar), for files without embedded art.
+fn folder_art(track: &std::path::Path) -> Option<Vec<u8>> {
+    let dir = track.parent()?;
+    let names = ["cover", "folder", "front", "album"];
+    let mut entries: Vec<_> = std::fs::read_dir(dir).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+    entries.sort();
+    entries.into_iter().find(|p| {
+        let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let ext = p.extension().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+        names.contains(&stem.as_str()) && matches!(ext.as_str(), "jpg" | "jpeg" | "png")
+    }).and_then(|p| std::fs::read(p).ok())
 }
