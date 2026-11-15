@@ -17,6 +17,34 @@
 		<style>
 			html { background: oklch(0.975 0 0); }
 			html.dark { background: oklch(0.13 0 0); }
+			/* The splash: in this file, so it paints before any script or
+			   stylesheet loads. The page removes it once the library is drawn
+			   (hideSplash in $lib/splash.ts). */
+			#splash {
+				position: fixed;
+				inset: 0;
+				z-index: 2147483647;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				gap: 28px;
+				background: inherit;
+				transition: opacity 220ms ease-out;
+			}
+			#splash.out { opacity: 0; pointer-events: none; }
+			#splash .bar { position: relative; width: 132px; height: 2px; overflow: hidden; background: oklch(0.5 0 0 / 16%); }
+			#splash .bar::after {
+				content: '';
+				position: absolute;
+				inset: 0;
+				background: linear-gradient(90deg, #d6007a, #ffb21e);
+				animation: splash-bar 1.3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+			}
+			@keyframes splash-bar { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+			@media (prefers-reduced-motion: reduce) {
+				#splash .bar::after { animation: none; opacity: 0.6; }
+			}
 		</style>
 		<link rel="preload" href="/fonts/selawik/selawkl.woff2" as="font" type="font/woff2" crossorigin />
 		<link rel="preload" href="/fonts/selawik/selawksl.woff2" as="font" type="font/woff2" crossorigin />
@@ -25,6 +53,42 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
+		<!-- Squirt's mark (same drawing as SquirtMark.svelte) over a loading bar. -->
+		<div id="splash" data-tauri-drag-region aria-hidden="true">
+			<svg width="64" height="88" viewBox="16 4 68 94" overflow="visible">
+				<defs>
+					<linearGradient id="sp-pink" x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#ff5cba" /><stop offset="1" stop-color="#d6007a" /></linearGradient>
+					<linearGradient id="sp-rose" x1="0.1" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#ff3d8a" /><stop offset="1" stop-color="#ff5a4a" /></linearGradient>
+					<linearGradient id="sp-orange" x1="0.2" y1="0" x2="0.8" y2="1"><stop offset="0" stop-color="#ff6a4a" /><stop offset="1" stop-color="#ffb21e" /></linearGradient>
+					<filter id="sp-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3" /></filter>
+					<clipPath id="sp-drop"><path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 82 64 C82 44 50 6 50 6 Z" /></clipPath>
+					<clipPath id="sp-mid"><path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 76.6 81.9 C66 72 62 58 66 44 C68 32 60 18 50 6 Z" /></clipPath>
+				</defs>
+				<path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 82 64 C82 44 50 6 50 6 Z" fill="url(#sp-orange)" />
+				<g clip-path="url(#sp-drop)"><path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 76.6 81.9 C66 72 62 58 66 44 C68 32 60 18 50 6 Z" transform="translate(4 2)" fill="#5c0030" opacity="0.38" filter="url(#sp-soft)" /></g>
+				<path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 76.6 81.9 C66 72 62 58 66 44 C68 32 60 18 50 6 Z" fill="url(#sp-rose)" />
+				<g clip-path="url(#sp-mid)"><path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 66.3 91.6 C52 80 46 62 55 42 C60 31 57 18 50 6 Z" transform="translate(4 2)" fill="#5c0030" opacity="0.38" filter="url(#sp-soft)" /></g>
+				<path d="M50 6 C50 6 18 44 18 64 A32 32 0 0 0 66.3 91.6 C52 80 46 62 55 42 C60 31 57 18 50 6 Z" fill="url(#sp-pink)" />
+			</svg>
+			<div class="bar"></div>
+		</div>
+		<!-- In the app the window starts hidden. Show it now, with the splash
+		     in place, and not after the scripts and the library have loaded.
+		     In a browser this only records the time. -->
+		<script>
+			(function () {
+				// When the splash was first drawn; it stays up a minimum time
+				// from then ($lib/splash.ts). The first frame is the real
+				// moment; the time now stands in until that frame comes.
+				window.__splashAt = performance.now();
+				requestAnimationFrame(function () { window.__splashAt = performance.now(); });
+				var t = window.__TAURI_INTERNALS__;
+				if (!t) return;
+				setTimeout(function () {
+					try { t.invoke('plugin:window|show', { label: t.metadata.currentWindow.label }).catch(function () {}); } catch (e) {}
+				}, 0);
+			})();
+		</script>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

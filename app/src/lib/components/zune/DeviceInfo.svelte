@@ -60,11 +60,11 @@
 </script>
 
 <div class="flex min-h-0 flex-1 gap-14">
-	<div class="metro-enter flex shrink-0 items-start pt-2" style="--i: 1">
+	<div class="fk-enter flex shrink-0 items-start pt-2" style="--i: 1">
 		<ZuneArt height={430} lit={info?.connected ?? false} kind={info?.kind} finish={info?.finish} />
 	</div>
 
-	<div class="metro-enter flex min-w-0 max-w-2xl flex-1 flex-col gap-8 overflow-y-auto pr-2" style="--i: 2">
+	<div class="fk-enter flex min-w-0 max-w-2xl flex-1 flex-col gap-8 overflow-y-auto pr-2" style="--i: 2">
 		{#if !info}
 			<p class="text-muted-foreground lowercase">looking for your zune…</p>
 		{:else if !info.connected}

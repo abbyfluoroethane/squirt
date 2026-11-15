@@ -16,9 +16,9 @@
 </script>
 
 {#if shows.length === 0}
-	<p class="metro-enter text-muted-foreground lowercase" style="--i: 1">no podcasts yet. add a podcast folder in settings.</p>
+	<p class="fk-enter text-muted-foreground lowercase" style="--i: 1">no podcasts yet. add a podcast folder in settings.</p>
 {:else}
-	<section class="metro-enter flex w-72 shrink-0 flex-col" style="--i: 1">
+	<section class="fk-enter flex w-72 shrink-0 flex-col" style="--i: 1">
 		<h3 class="colhead mb-2">show</h3>
 		<ScrollArea class="min-h-0 flex-1 pr-3">
 			{#each shows as s (s.id)}
@@ -32,7 +32,7 @@
 			{/each}
 		</ScrollArea>
 	</section>
-	<section class="metro-enter flex min-w-0 flex-1 flex-col border-l pl-4" style="--i: 2">
+	<section class="fk-enter flex min-w-0 flex-1 flex-col border-l pl-4" style="--i: 2">
 		{#if show}
 			<div class="mb-4 flex items-end gap-4">
 				<AlbumArt hue={show.hue} size={96} src={show.art ?? undefined} />

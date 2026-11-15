@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import adapter from '@sveltejs/adapter-static';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { sveltePhosphorOptimize } from 'phosphor-svelte/vite';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
@@ -22,6 +23,10 @@ export default defineConfig({
 			adapter: adapter({ fallback: 'index.html' }),
 			// shadcn-svelte components import from $lib, which SvelteKit no longer defines by default.
 			alias: { $lib: 'src/lib' }
-		})
+		}),
+		// Turns `import { X } from 'phosphor-svelte'` into one import per icon.
+		// Without it the dev server sends the window all 1,500 icons (20 MB).
+		// After sveltekit(): it reads the compiled script, not the .svelte source.
+		sveltePhosphorOptimize()
 	]
 });

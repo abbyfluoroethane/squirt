@@ -8,7 +8,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Switch } from '$lib/components/ui/switch';
 	import { Check, FolderSimple, Plus } from 'phosphor-svelte';
-	import Pivot from './Pivot.svelte';
+	import Pivot from 'fluorokit/svelte/Pivot.svelte';
 	import SquirtMark from './SquirtMark.svelte';
 	import ZuneArt from './ZuneArt.svelte';
 
@@ -153,7 +153,7 @@
 	}
 
 	const macApp = isTauri && typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
-	const enter = $derived(`--enter-offset: ${dir * 80}px`);
+	const enter = $derived(`--fk-enter-dir: ${dir}`);
 	const progress = $derived(scan && scan.total > 0 ? Math.min(1, scan.done / scan.total) : 0);
 </script>
 
@@ -175,17 +175,17 @@
 			<div class="m-auto flex w-full {step === 'zune' ? 'max-w-3xl' : 'max-w-2xl'} flex-col {step === 'welcome' || step === 'ready' ? 'items-center text-center' : ''}" style={enter}>
 				{#if step === 'welcome'}
 					<div class="mb-10"><SquirtMark size={128} animate /></div>
-					<h1 class="metro-enter text-[4.25rem] leading-[1.05] font-light lowercase" style="--i: 1; animation-delay: 0.9s">welcome to squirt.</h1>
-					<p class="metro-enter mt-5 max-w-lg text-lg text-muted-foreground" style="--i: 2; animation-delay: 1s">
+					<h1 class="fk-enter text-[4.25rem] leading-[1.05] font-light lowercase" style="--i: 1; animation-delay: 0.9s">welcome to squirt.</h1>
+					<p class="fk-enter mt-5 max-w-lg text-lg text-muted-foreground" style="--i: 2; animation-delay: 1s">
 						your music, videos and pictures, on your computer and your zune. setup takes about a minute.
 					</p>
 
 				{:else if step === 'library'}
-					<h1 class="metro-enter text-[3rem] leading-tight font-light lowercase" style="--i: 0">where's your music?</h1>
-					<p class="metro-enter mt-3 max-w-xl text-muted-foreground" style="--i: 1">
+					<h1 class="fk-enter text-[3rem] leading-tight font-light lowercase" style="--i: 0">where's your music?</h1>
+					<p class="fk-enter mt-3 max-w-xl text-muted-foreground" style="--i: 1">
 						squirt watches these folders and picks up anything you add later. it never moves or changes your files.
 					</p>
-					<div class="metro-enter mt-8 flex flex-col" style="--i: 2">
+					<div class="fk-enter mt-8 flex flex-col" style="--i: 2">
 						{#if !suggestionsLoaded}
 							<p class="text-muted-foreground lowercase">looking for your folders…</p>
 						{/if}
@@ -226,35 +226,35 @@
 
 				{:else if step === 'zune'}
 					<div class="flex items-center justify-center gap-14">
-						<div class="metro-enter shrink-0" style="--i: 0">
+						<div class="fk-enter shrink-0" style="--i: 0">
 							<ZuneArt height={380} lit={device?.connected ?? false} kind={device?.kind} finish={device?.finish} />
 						</div>
 						<div class="flex min-w-0 max-w-lg flex-col pt-2">
 							{#if setup && !setup.keys}
-								<h1 class="metro-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">one file first.</h1>
-								<p class="metro-enter mt-3 text-muted-foreground" style="--i: 2">
+								<h1 class="fk-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">one file first.</h1>
+								<p class="fk-enter mt-3 text-muted-foreground" style="--i: 2">
 									a zune only talks to software that signs in with a key. squirt doesn't include one. choose a key file in the
 									<code class="font-mono text-foreground">.mtpz-data</code> format and squirt will copy it to
 									<code class="font-mono text-foreground">{setup.keysPath}</code>.
 								</p>
-								<div class="metro-enter mt-6 flex flex-col gap-2" style="--i: 3">
+								<div class="fk-enter mt-6 flex flex-col gap-2" style="--i: 3">
 									<Button size="sm" class="w-fit lowercase" onclick={chooseKeys}>choose key file</Button>
 									{#if keysError ?? setup.keysError}<p class="text-xs text-destructive">{keysError ?? setup.keysError}</p>{/if}
 								</div>
 							{:else if device?.connected}
-								<h1 class="metro-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">hi, {device.name || 'zune'}.</h1>
-								<p class="metro-enter mt-3 text-muted-foreground lowercase" style="--i: 2">
+								<h1 class="fk-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">hi, {device.name || 'zune'}.</h1>
+								<p class="fk-enter mt-3 text-muted-foreground lowercase" style="--i: 2">
 									{device.finish ? `${device.finish} ` : ''}{device.model} · <span class="tabular">{bytes(device.free)}</span> free of <span class="tabular">{bytes(device.capacity)}</span>
 								</p>
-								<p class="metro-enter mt-6 text-muted-foreground" style="--i: 3">send albums to it from your collection, and see what's on it under device.</p>
+								<p class="fk-enter mt-6 text-muted-foreground" style="--i: 3">send albums to it from your collection, and see what's on it under device.</p>
 							{:else if device?.problem}
-								<h1 class="metro-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">almost.</h1>
-								<p class="metro-enter mt-3 text-muted-foreground" style="--i: 2">your zune is plugged in, but squirt can't use it yet:</p>
-								<p class="metro-enter mt-2 font-mono text-xs text-muted-foreground" style="--i: 3">{device.problem}</p>
+								<h1 class="fk-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">almost.</h1>
+								<p class="fk-enter mt-3 text-muted-foreground" style="--i: 2">your zune is plugged in, but squirt can't use it yet:</p>
+								<p class="fk-enter mt-2 font-mono text-xs text-muted-foreground" style="--i: 3">{device.problem}</p>
 							{:else}
-								<h1 class="metro-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">plug in your zune.</h1>
-								<p class="metro-enter mt-3 text-muted-foreground" style="--i: 2">connect it with a usb cable and unlock it. squirt finds it on its own.</p>
-								<p class="metro-enter mt-6 flex items-center gap-2 text-xs text-muted-foreground lowercase" style="--i: 3">
+								<h1 class="fk-enter text-[3rem] leading-tight font-light lowercase" style="--i: 1">plug in your zune.</h1>
+								<p class="fk-enter mt-3 text-muted-foreground" style="--i: 2">connect it with a usb cable and unlock it. squirt finds it on its own.</p>
+								<p class="fk-enter mt-6 flex items-center gap-2 text-xs text-muted-foreground lowercase" style="--i: 3">
 									<span class="inline-block size-1.5 animate-pulse bg-primary"></span>looking for your zune…
 								</p>
 							{/if}
@@ -262,10 +262,10 @@
 					</div>
 
 				{:else if step === 'social'}
-					<h1 class="metro-enter text-[3rem] leading-tight font-light lowercase" style="--i: 0">share what you play.</h1>
-					<p class="metro-enter mt-3 max-w-xl text-muted-foreground" style="--i: 1">both are optional. you can change them later under social.</p>
+					<h1 class="fk-enter text-[3rem] leading-tight font-light lowercase" style="--i: 0">share what you play.</h1>
+					<p class="fk-enter mt-3 max-w-xl text-muted-foreground" style="--i: 1">both are optional. you can change them later under social.</p>
 					<div class="mt-8 flex flex-col">
-						<div class="metro-enter flex items-center gap-6 border-b py-4" style="--i: 2">
+						<div class="fk-enter flex items-center gap-6 border-b py-4" style="--i: 2">
 							<div class="flex min-w-0 flex-1 flex-col">
 								<span class="subpivot">last.fm</span>
 								<span class="text-xs text-muted-foreground">
@@ -286,7 +286,7 @@
 								<Check size={18} class="text-primary" />
 							{/if}
 						</div>
-						<label class="metro-enter flex items-center gap-6 border-b py-4" style="--i: 3">
+						<label class="fk-enter flex items-center gap-6 border-b py-4" style="--i: 3">
 							<span class="flex min-w-0 flex-1 flex-col">
 								<span class="subpivot">discord</span>
 								<span class="text-xs text-muted-foreground">show what you're playing on your discord profile.</span>
@@ -297,8 +297,8 @@
 					</div>
 
 				{:else}
-					<h1 class="metro-enter text-[4.25rem] leading-[1.05] font-light lowercase" style="--i: 0">you're set.</h1>
-					<div class="metro-enter mt-8 flex w-full max-w-md flex-col gap-2" style="--i: 1">
+					<h1 class="fk-enter text-[4.25rem] leading-[1.05] font-light lowercase" style="--i: 0">you're set.</h1>
+					<div class="fk-enter mt-8 flex w-full max-w-md flex-col gap-2" style="--i: 1">
 						{#if scan?.running}
 							<p class="text-muted-foreground lowercase">
 								reading your library… <span class="tabular text-foreground">{scan.done.toLocaleString()}</span> of <span class="tabular">{scan.total.toLocaleString()}</span>
@@ -312,7 +312,7 @@
 						{/if}
 					</div>
 					<!-- What setup did, in one place. -->
-					<dl class="metro-enter mt-10 grid w-full max-w-md grid-cols-[7rem_1fr] items-baseline gap-x-6 gap-y-2.5 text-left" style="--i: 2">
+					<dl class="fk-enter mt-10 grid w-full max-w-md grid-cols-[7rem_1fr] items-baseline gap-x-6 gap-y-2.5 text-left" style="--i: 2">
 						<dt class="colhead">library</dt>
 						<dd class="min-w-0 truncate font-mono text-xs">
 							{rows.filter((r) => r.watched).map((r) => tilde(r.path)).join(', ') || '—'}

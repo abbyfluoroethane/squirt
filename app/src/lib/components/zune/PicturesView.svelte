@@ -35,9 +35,9 @@
 <svelte:window onkeydown={onKey} />
 
 {#if albums.length === 0}
-	<p class="metro-enter text-muted-foreground lowercase" style="--i: 1">no pictures yet. add a picture folder in settings.</p>
+	<p class="fk-enter text-muted-foreground lowercase" style="--i: 1">no pictures yet. add a picture folder in settings.</p>
 {:else}
-	<section class="metro-enter flex w-56 shrink-0 flex-col" style="--i: 1">
+	<section class="fk-enter flex w-56 shrink-0 flex-col" style="--i: 1">
 		<h3 class="colhead mb-2">album</h3>
 		<ScrollArea class="min-h-0 flex-1 pr-3">
 			{#each albums as a (a.name)}
@@ -55,7 +55,7 @@
 			{/each}
 		</ScrollArea>
 	</section>
-	<section class="metro-enter flex min-w-0 flex-1 flex-col border-l pl-4" style="--i: 2">
+	<section class="fk-enter flex min-w-0 flex-1 flex-col border-l pl-4" style="--i: 2">
 		<h3 class="colhead mb-2">{album?.name ?? ''}</h3>
 		<ScrollArea class="min-h-0 flex-1 pr-3">
 			<div class="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-1.5">

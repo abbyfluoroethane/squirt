@@ -224,9 +224,9 @@ pub fn run() {
             }
             let svc = app.state::<Arc<Service>>().inner().clone();
             media::init(app.handle(), svc);
-            // The window starts hidden and the page shows it once it has
-            // rendered. If the page never does (a script error, a slow dev
-            // server), show it anyway.
+            // The window starts hidden and the page shows it as soon as its
+            // splash is in place (app.html). If the page never does (a slow
+            // dev server), show it anyway.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(3));

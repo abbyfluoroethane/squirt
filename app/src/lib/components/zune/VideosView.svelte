@@ -27,9 +27,9 @@
 <svelte:window onkeydown={onKey} />
 
 {#if videos.length === 0}
-	<p class="metro-enter text-muted-foreground lowercase" style="--i: 1">no videos yet. add a video folder in settings.</p>
+	<p class="fk-enter text-muted-foreground lowercase" style="--i: 1">no videos yet. add a video folder in settings.</p>
 {:else}
-	<ScrollArea class="metro-enter min-h-0 flex-1 pr-3" style="--i: 1">
+	<ScrollArea class="fk-enter min-h-0 flex-1 pr-3" style="--i: 1">
 		<div class="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-x-5 gap-y-6">
 			{#each videos as v (v.id)}
 				<button class="group flex flex-col gap-2 text-left" onclick={() => play(v)}>

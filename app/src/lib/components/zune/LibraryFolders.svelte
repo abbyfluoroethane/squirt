@@ -54,7 +54,7 @@
 <div class="flex flex-col gap-6">
 	{#each SECTIONS as s, i (s.kind)}
 		{@const list = folders.filter((f) => f.kind === s.kind)}
-		<div class="metro-enter flex flex-col gap-2" style="--i: {i + 1}">
+		<div class="fk-enter flex flex-col gap-2" style="--i: {i + 1}">
 			<div class="flex items-baseline gap-3">
 				<h3 class="text-[1.05rem] font-[350] lowercase">{s.title}</h3>
 				<span class="text-xs text-muted-foreground">{s.hint}</span>
@@ -74,7 +74,7 @@
 		</div>
 	{/each}
 
-	<div class="metro-enter flex items-center gap-3" style="--i: 5">
+	<div class="fk-enter flex items-center gap-3" style="--i: 5">
 		<Button size="sm" variant="outline" class="lowercase" disabled={scan?.running} onclick={async () => { scan = await media.rescan(); }}>rescan now</Button>
 		<span class="text-xs text-muted-foreground">
 			{#if scan?.running}

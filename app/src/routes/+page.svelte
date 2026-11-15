@@ -3,7 +3,8 @@
 	import { connect, isTauri, openExternal, pickFolder, revealFile, type PictureAlbum, type VideoItem, type Album, type Api, type Backend, type DeviceStatus, type PlayerState, type SyncStatus, type Track } from '$lib/api';
 	import { bytes, duration } from '$lib/format';
 	import { theme, type Theme } from '$lib/theme.svelte';
-	import Pivot from '$lib/components/zune/Pivot.svelte';
+	import Pivot from 'fluorokit/svelte/Pivot.svelte';
+	import { setEnterDirection } from 'fluorokit/enter';
 	import AlbumArt from '$lib/components/zune/AlbumArt.svelte';
 	import DeviceBar from '$lib/components/zune/DeviceBar.svelte';
 	import Transport from '$lib/components/zune/Transport.svelte';
@@ -12,19 +13,27 @@
 	import { ScrollArea } from '$lib/components/ui/scroll-area';
 	import { Check, Play, SpeakerHigh, SpeakerSimpleNone } from 'phosphor-svelte';
 	import ZuneHD from '$lib/components/zune/ZuneHD.svelte';
-	import NowPlaying from '$lib/components/zune/NowPlaying.svelte';
 	import SquirtMark from '$lib/components/zune/SquirtMark.svelte';
-	import Social from '$lib/components/zune/Social.svelte';
-	import DeviceInfo from '$lib/components/zune/DeviceInfo.svelte';
-	import LibraryFolders from '$lib/components/zune/LibraryFolders.svelte';
-	import Welcome from '$lib/components/zune/Welcome.svelte';
 	import RowMenu from '$lib/components/zune/RowMenu.svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { revealLabel, type MenuEntry } from '$lib/components/zune/menu';
-	import VideosView from '$lib/components/zune/VideosView.svelte';
-	import PicturesView from '$lib/components/zune/PicturesView.svelte';
-	import PodcastsView from '$lib/components/zune/PodcastsView.svelte';
 	import { tick } from 'svelte';
+	import { hideSplash, splashMinimum } from '$lib/splash';
+
+	// Views that the first screen doesn't show load when they are first
+	// opened, so the app starts with less script to read. `preloadViews`
+	// fetches them all once the window is up, so opening one never waits.
+	const views = {
+		NowPlaying: () => import('$lib/components/zune/NowPlaying.svelte'),
+		Social: () => import('$lib/components/zune/Social.svelte'),
+		DeviceInfo: () => import('$lib/components/zune/DeviceInfo.svelte'),
+		LibraryFolders: () => import('$lib/components/zune/LibraryFolders.svelte'),
+		Welcome: () => import('$lib/components/zune/Welcome.svelte'),
+		VideosView: () => import('$lib/components/zune/VideosView.svelte'),
+		PicturesView: () => import('$lib/components/zune/PicturesView.svelte'),
+		PodcastsView: () => import('$lib/components/zune/PodcastsView.svelte')
+	};
+	const preloadViews = () => Object.values(views).forEach((load) => load().catch(() => {}));
 
 	const PIVOTS = ['collection', 'device', 'social', 'settings'] as const;
 	const SUBPIVOTS = ['music', 'videos', 'pictures', 'podcasts'] as const;
@@ -32,19 +41,16 @@
 
 	type PivotName = (typeof PIVOTS)[number];
 	let pivot = $state<PivotName>('collection');
-	// Which side new pages slide in from: +1 when moving to a pivot further
-	// right, -1 when moving left. Set before the page changes so the entering
-	// content uses it.
-	let pivotDir = $state(1);
+	// Pages slide in from the side their pivot lies on. The kit's Pivot sets
+	// that at a click; this does it when a menu or a shortcut changes the pivot.
 	function setPivot(p: PivotName) {
 		if (p === pivot) return;
-		pivotDir = PIVOTS.indexOf(p) > PIVOTS.indexOf(pivot) ? 1 : -1;
+		setEnterDirection(PIVOTS, pivot, p);
 		// The device pivot opens on its info page; info only exists there.
 		if (p === 'device') subpivot = 'info';
 		else if (subpivot === 'info') subpivot = 'music';
 		pivot = p;
 	}
-	const enterOffset = $derived(`--enter-offset: ${pivotDir * 80}px`);
 	let subpivot = $state<(typeof DEVICE_SUBPIVOTS)[number]>('music');
 
 	let device = $state<DeviceStatus | null>(null);
@@ -122,15 +128,18 @@
 					}, 2000)
 				);
 			})();
-			await Promise.all([library.catch((e) => console.error('library', e)), setup]);
-			// Deep links for development: #device, #now-playing.
-			if (location.hash === '#device') setPivot('device');
-			if (location.hash === '#social') setPivot('social');
-			if (location.hash === '#settings') setPivot('settings');
-			if (location.hash === '#videos') subpivot = 'videos';
-			if (location.hash === '#pictures') subpivot = 'pictures';
-			if (location.hash === '#now-playing') fullscreen = true;
-			await reveal();
+			try {
+				await Promise.all([library.catch((e) => console.error('library', e)), setup]);
+				// Deep links for development: #device, #now-playing.
+				if (location.hash === '#device') setPivot('device');
+				if (location.hash === '#social') setPivot('social');
+				if (location.hash === '#settings') setPivot('settings');
+				if (location.hash === '#videos') subpivot = 'videos';
+				if (location.hash === '#pictures') subpivot = 'pictures';
+				if (location.hash === '#now-playing') fullscreen = true;
+			} finally {
+				await reveal();
+			}
 			timers.push(setInterval(async () => (player = await c.api.player.state()), 500));
 		})();
 		// The macOS menu bar sends its items here.
@@ -205,14 +214,23 @@
 		}
 	}
 
-	/** Shows the window (it starts hidden) once the first page is rendered
-	 *  and its fonts are in, so it never opens blank or half styled. */
+	// The splash (app.html) covers the window until the first page is drawn.
+	let ready = $state(false);
+	/** Draws the first page under the splash, then lifts the splash once the
+	 *  page's fonts are in, so the app never shows blank or half styled. */
 	async function reveal() {
-		if (!isTauri) return;
+		// First launch opens on setup; have it loaded before the splash lifts.
+		if (showSetup) await views.Welcome().catch(() => {});
+		// The page waits for the splash's minimum time, so its entrance
+		// plays as the splash lifts and not unseen behind it.
+		await splashMinimum();
+		ready = true;
 		await tick();
 		await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 300))]);
-		const { getCurrentWindow } = await import('@tauri-apps/api/window');
-		await getCurrentWindow().show();
+		hideSplash();
+		// app.html shows the window when the splash is up. Again here, in case that failed.
+		if (isTauri) import('@tauri-apps/api/window').then(({ getCurrentWindow }) => getCurrentWindow().show()).catch(() => {});
+		setTimeout(preloadViews, 800);
 	}
 
 	// Each list is shown as soon as it arrives.
@@ -415,6 +433,8 @@
 
 <svelte:window onkeydown={onKey} />
 
+<!-- Drawn once the library has answered, so the page enters complete as the splash lifts. -->
+{#if ready}
 <div class="flex h-dvh flex-col overflow-hidden">
 	<!-- In the app, the header doubles as the window's title bar (macOS draws
 	     the traffic lights over its top-left corner). -->
@@ -432,7 +452,7 @@
 		<Pivot items={PIVOTS} bind:value={() => pivot, setPivot} />
 		{#key pivot}
 			{#if pivot === 'collection' || pivot === 'device'}
-				<div class="metro-enter" style={enterOffset}>
+				<div class="fk-enter">
 					<Pivot items={pivot === 'device' ? DEVICE_SUBPIVOTS : SUBPIVOTS} bind:value={subpivot} size="subpivot" disabled={pivot === 'device' ? ['videos', 'pictures', 'podcasts'] : []} />
 				</div>
 			{/if}
@@ -440,19 +460,19 @@
 	</header>
 
 	<main class="flex min-h-0 flex-1 px-6 pt-5 pb-3">
-		{#key pivot}
-		<!-- Each pivot's page slides in from the side it lies on (see setPivot). -->
-		<div class="flex min-h-0 min-w-0 flex-1 gap-0" style={enterOffset}>
+		{#key `${pivot}/${subpivot}`}
+		<!-- Each page slides in from the side its pivot or subpivot lies on. -->
+		<div class="flex min-h-0 min-w-0 flex-1 gap-0">
 		{#if pivot === 'social'}
-			{#if api}<Social social={api.social} />{/if}
+			{#if api}{#await views.Social() then { default: Social }}<Social social={api.social} />{/await}{/if}
 		{:else if pivot === 'settings'}
 			<section class="flex min-w-0 flex-1 gap-14 overflow-y-auto pr-2">
 			<div class="flex w-[34rem] max-w-full shrink-0 flex-col gap-3">
-				<h2 class="subpivot metro-enter" style="--i: 0">library folders</h2>
-				{#if api}<LibraryFolders media={api.media} onScanned={() => api && reload(api)} />{/if}
+				<h2 class="subpivot fk-enter" style="--i: 0">library folders</h2>
+				{#if api}{#await views.LibraryFolders() then { default: LibraryFolders }}<LibraryFolders media={api.media} onScanned={() => api && reload(api)} />{/await}{/if}
 			</div>
 			<div class="flex max-w-md flex-col gap-8">
-				<div class="metro-enter flex flex-col gap-3" style="--i: 1">
+				<div class="fk-enter flex flex-col gap-3" style="--i: 1">
 					<h2 class="subpivot">theme</h2>
 					<div class="flex gap-2">
 						{#each THEMES as t (t)}
@@ -460,15 +480,15 @@
 						{/each}
 					</div>
 				</div>
-				<div class="metro-enter flex flex-col gap-2" style="--i: 2">
+				<div class="fk-enter flex flex-col gap-2" style="--i: 2">
 					<h2 class="subpivot">mtpz keys</h2>
 					<p class="text-muted-foreground">read from <code class="font-mono text-foreground">~/.mtpz-data</code>. squirt doesn't include keys.</p>
 				</div>
-				<div class="metro-enter flex flex-col gap-3" style="--i: 2">
+				<div class="fk-enter flex flex-col gap-3" style="--i: 2">
 					<h2 class="subpivot">setup</h2>
 					<Button size="sm" variant="outline" class="w-fit lowercase" onclick={() => (showSetup = true)}>run setup again</Button>
 				</div>
-				<div class="metro-enter flex flex-col gap-2" style="--i: 3">
+				<div class="fk-enter flex flex-col gap-2" style="--i: 3">
 					<h2 class="subpivot">about</h2>
 					<p class="text-muted-foreground">squirt 0.1 · mit license</p>
 					<p class="text-xs leading-relaxed text-muted-foreground">
@@ -481,21 +501,21 @@
 			</div>
 			</section>
 		{:else if pivot === 'collection' && subpivot === 'videos'}
-			{#if api}<VideosView media={api.media} {videos} onPlay={() => { if (player.status === 'playing') act((a) => a.player.toggle())(); }} />{/if}
+			{#if api}{#await views.VideosView() then { default: VideosView }}<VideosView media={api.media} {videos} onPlay={() => { if (player.status === 'playing') act((a) => a.player.toggle())(); }} />{/await}{/if}
 		{:else if pivot === 'collection' && subpivot === 'pictures'}
-			{#if api}<PicturesView media={api.media} albums={pictureAlbums} />{/if}
+			{#if api}{#await views.PicturesView() then { default: PicturesView }}<PicturesView media={api.media} albums={pictureAlbums} />{/await}{/if}
 		{:else if pivot === 'collection' && subpivot === 'podcasts'}
-			<PodcastsView shows={podcasts} playingId={player.trackId} onPlay={(s, i) => playAlbum(s, i)} />
+			{#await views.PodcastsView() then { default: PodcastsView }}<PodcastsView shows={podcasts} playingId={player.trackId} onPlay={(s, i) => playAlbum(s, i)} />{/await}
 		{:else if pivot === 'device' && subpivot === 'info'}
-			{#if api}<DeviceInfo devices={api.devices} onChange={async () => { if (api) { device = await api.device(); await reload(api); } }} />{/if}
+			{#if api}{#await views.DeviceInfo() then { default: DeviceInfo }}<DeviceInfo devices={api.devices} onChange={async () => { if (api) { device = await api.device(); await reload(api); } }} />{/await}{/if}
 		{:else if pivot === 'device' && !device?.connected}
-			<section class="metro-enter flex flex-col gap-2" style="--i: 1">
+			<section class="fk-enter flex flex-col gap-2" style="--i: 1">
 				<p class="subpivot text-muted-foreground">{device?.problem ? 'your zune is connected but squirt cannot use it' : 'connect your zune'}</p>
 				{#if device?.problem}<p class="text-muted-foreground">{device.problem}</p>{/if}
 			</section>
 		{:else}
 			<!-- artists -->
-			<section class="metro-enter flex w-52 shrink-0 flex-col" style="--i: 1">
+			<section class="fk-enter flex w-52 shrink-0 flex-col" style="--i: 1">
 				<h3 class="colhead mb-2">artist</h3>
 				<ScrollArea class="min-h-0 flex-1 pr-3">
 					<button class="row {artist === null ? 'row-on' : ''}" onclick={() => (artist = null)}>all</button>
@@ -508,7 +528,7 @@
 			</section>
 
 			<!-- albums -->
-			<section class="metro-enter flex min-w-0 flex-1 flex-col border-l pl-4" style="--i: 2">
+			<section class="fk-enter flex min-w-0 flex-1 flex-col border-l pl-4" style="--i: 2">
 				<h3 class="colhead mb-2">album</h3>
 				<ScrollArea class="min-h-0 flex-1 pr-3">
 					{#each shownAlbums as al (al.id)}
@@ -530,7 +550,7 @@
 			</section>
 
 			<!-- songs -->
-			<section class="metro-enter flex w-[44%] shrink-0 flex-col border-l pl-4" style="--i: 3">
+			<section class="fk-enter flex w-[44%] shrink-0 flex-col border-l pl-4" style="--i: 3">
 				{#if selected}
 					<div class="mb-4 flex items-end gap-4">
 						<AlbumArt hue={selected.hue} size={96} src={selected.art ?? undefined} />
@@ -626,6 +646,7 @@
 		</div>
 	</footer>
 </div>
+{/if}
 
 <!-- Confirms removing songs from the Zune. -->
 <AlertDialog.Root open={removal !== null} onOpenChange={(o) => { if (!o && !removing) removal = null; }}>
@@ -646,10 +667,11 @@
 </AlertDialog.Root>
 
 {#if showSetup && api}
-	<Welcome {api} onDone={() => { showSetup = false; setPivot('collection'); subpivot = 'music'; if (api) reload(api); }} />
+	{#await views.Welcome() then { default: Welcome }}<Welcome {api} onDone={() => { showSetup = false; setPivot('collection'); subpivot = 'music'; if (api) reload(api); }} />{/await}
 {/if}
 
 {#if fullscreen && nowPlaying}
+	{#await views.NowPlaying() then { default: NowPlaying }}
 	<NowPlaying
 		state={player}
 		track={nowPlaying.t}
@@ -666,6 +688,7 @@
 		onClose={() => (fullscreen = false)}
 		spectrum={(n) => api?.player.spectrum(n) ?? Promise.resolve([])}
 	/>
+	{/await}
 {/if}
 
 <style>
