@@ -99,6 +99,23 @@ jobs:
           fi
           chmod +x ffmpeg-* ffprobe-* || true
           ls -la
+      - name: macOS icon
+        # The layered icon (Squirt.icon) gives the Clear, Tinted and Dark Dock
+        # icons. Tauri's own actool call crashes on it (Tauri CLI 2.12, Xcode
+        # 26.6), so compile it here and give Tauri the finished Assets.car.
+        if: startsWith(matrix.os, 'macos')
+        working-directory: app/src-tauri
+        run: |
+          t="$(mktemp -d)"
+          cp -R icons/Squirt.icon "$t/Icon.icon"
+          mkdir "$t/out"
+          xcrun actool "$t/Icon.icon" --compile "$t/out" --output-format human-readable-text --notices --warnings \
+            --output-partial-info-plist "$t/out/info.plist" --app-icon Icon --include-all-app-icons \
+            --enable-on-demand-resources NO --development-region en --target-device mac \
+            --minimum-deployment-target 26.0 --platform macosx
+          cp "$t/out/Assets.car" icons/Assets.car
+          echo '{ "bundle": { "icon": ["icons/Assets.car", "icons/icon.icns"] } }' > tauri.macos-icon.conf.json
+          echo "ICON_CONFIG=src-tauri/tauri.macos-icon.conf.json" >> "$GITHUB_ENV"
       - name: Build
         working-directory: app
         shell: bash
@@ -107,7 +124,7 @@ jobs:
           SQUIRT_MTPZ_DATA: ${{ secrets.SQUIRT_MTPZ_DATA }}
         run: |
           npm ci
-          npx tauri build --config src-tauri/tauri.release.conf.json --bundles ${{ matrix.bundles }}
+          npx tauri build --config src-tauri/tauri.release.conf.json ${ICON_CONFIG:+--config "$ICON_CONFIG"} --bundles ${{ matrix.bundles }}
       - uses: actions/upload-artifact@v7
         with:
           name: squirt-${{ matrix.target }}
